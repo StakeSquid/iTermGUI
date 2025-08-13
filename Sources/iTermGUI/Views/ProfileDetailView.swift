@@ -404,13 +404,23 @@ struct TagEditor: View {
     @Binding var tags: Set<String>
     let isEditing: Bool
     @State private var newTag = ""
+    @FocusState private var isTextFieldFocused: Bool
     
     var body: some View {
-        VStack(alignment: .leading) {
-            Text("Tags")
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Tags")
+                Spacer()
+                if isEditing && tags.isEmpty {
+                    Text("Click + to add tags")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack {
-                    ForEach(Array(tags), id: \.self) { tag in
+                    ForEach(Array(tags).sorted(), id: \.self) { tag in
                         TagView(tag: tag, isEditing: isEditing) {
                             if isEditing {
                                 tags.remove(tag)
@@ -423,12 +433,17 @@ struct TagEditor: View {
                             TextField("Add tag", text: $newTag)
                                 .textFieldStyle(.plain)
                                 .frame(width: 80)
+                                .focused($isTextFieldFocused)
                                 .onSubmit {
-                                    if !newTag.isEmpty {
-                                        tags.insert(newTag)
-                                        newTag = ""
-                                    }
+                                    addTag()
                                 }
+                            
+                            Button(action: addTag) {
+                                Image(systemName: "plus.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(newTag.isEmpty)
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -437,6 +452,16 @@ struct TagEditor: View {
                     }
                 }
             }
+            .frame(minHeight: 30)
+        }
+    }
+    
+    private func addTag() {
+        let trimmedTag = newTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTag.isEmpty {
+            tags.insert(trimmedTag)
+            newTag = ""
+            isTextFieldFocused = true
         }
     }
 }
@@ -451,11 +476,15 @@ struct TagView: View {
             Text(tag)
                 .font(.caption)
             if isEditing {
-                Button(action: onDelete) {
+                Button(action: {
+                    onDelete()
+                }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.caption)
+                        .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Remove tag")
             }
         }
         .padding(.horizontal, 8)
