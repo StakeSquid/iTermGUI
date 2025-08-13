@@ -28,6 +28,16 @@ struct ProfileListView: View {
                                 profileManager.connectToProfiles(Array(profileManager.selectedProfiles), mode: .windows)
                             }
                             Divider()
+                            Menu("Add \(profileManager.selectedProfiles.count) Profiles to Group") {
+                                ForEach(profileManager.groups.filter { !["All Profiles", "Favorites", "Recent"].contains($0.name) }) { group in
+                                    Button(group.name) {
+                                        for selectedProfile in profileManager.selectedProfiles {
+                                            profileManager.addProfileToGroup(selectedProfile, group: group)
+                                        }
+                                    }
+                                }
+                            }
+                            Divider()
                             Button("Delete \(profileManager.selectedProfiles.count) Profiles", role: .destructive) {
                                 for selectedProfile in profileManager.selectedProfiles {
                                     profileManager.deleteProfile(selectedProfile)
@@ -51,6 +61,19 @@ struct ProfileListView: View {
                             Divider()
                             Button("Toggle Favorite") {
                                 profileManager.toggleFavorite(profile)
+                            }
+                            Divider()
+                            Menu("Add to Group") {
+                                ForEach(profileManager.groups.filter { !["All Profiles", "Favorites", "Recent"].contains($0.name) }) { group in
+                                    Button(group.name) {
+                                        profileManager.addProfileToGroup(profile, group: group)
+                                    }
+                                }
+                            }
+                            if let currentGroup = profileManager.groups.first(where: { $0.profileIDs.contains(profile.id) && !["All Profiles", "Favorites", "Recent"].contains($0.name) }) {
+                                Button("Remove from \(currentGroup.name)") {
+                                    profileManager.removeProfileFromGroup(profile, group: currentGroup)
+                                }
                             }
                             Divider()
                             Button("Delete", role: .destructive) {

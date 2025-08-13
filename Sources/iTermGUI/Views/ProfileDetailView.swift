@@ -166,6 +166,7 @@ struct ConnectionTabView: View {
                 TagEditor(tags: $profile.tags, isEditing: isEditing)
                 Toggle("Favorite", isOn: $profile.isFavorite)
                     .disabled(!isEditing)
+                GroupSelector(profile: $profile, isEditing: isEditing)
             }
         }
         .formStyle(.grouped)
@@ -505,6 +506,55 @@ struct PortForwardRow: View {
             TextField("Remote Port", value: $forward.remotePort, format: .number)
                 .frame(width: 80)
                 .disabled(!isEditing)
+        }
+    }
+}
+
+struct GroupSelector: View {
+    @Binding var profile: SSHProfile
+    let isEditing: Bool
+    @EnvironmentObject var profileManager: ProfileManager
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Groups")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack {
+                    ForEach(profileManager.groups.filter { !["All Profiles", "Favorites", "Recent"].contains($0.name) }) { group in
+                        let isInGroup = group.profileIDs.contains(profile.id)
+                        Button(action: {
+                            if isEditing {
+                                if isInGroup {
+                                    profileManager.removeProfileFromGroup(profile, group: group)
+                                } else {
+                                    profileManager.addProfileToGroup(profile, group: group)
+                                }
+                            }
+                        }) {
+                            HStack(spacing: 4) {
+                                if isInGroup {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.caption)
+                                }
+                                Text(group.name)
+                                    .font(.caption)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(isInGroup ? Color.accentColor.opacity(0.2) : Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!isEditing)
+                    }
+                    
+                    if profileManager.groups.filter({ !["All Profiles", "Favorites", "Recent"].contains($0.name) }).isEmpty {
+                        Text("No custom groups")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
         }
     }
 }
