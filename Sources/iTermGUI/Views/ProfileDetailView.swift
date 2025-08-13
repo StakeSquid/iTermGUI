@@ -304,6 +304,7 @@ struct CommandsTabView: View {
     @Binding var profile: SSHProfile
     let isEditing: Bool
     @State private var newCommand = ""
+    @State private var selection = Set<String>()
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -312,16 +313,34 @@ struct CommandsTabView: View {
                     .font(.headline)
                 Spacer()
                 if !isEditing {
-                    Text("Click Edit to add commands")
+                    Text("Click Edit to manage commands")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Drag to reorder • Select to delete")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
             }
             
-            List {
-                ForEach(profile.customCommands, id: \.self) { command in
-                    Text(command)
-                        .font(.system(.body, design: .monospaced))
+            List(selection: isEditing ? $selection : .constant(Set<String>())) {
+                ForEach(profile.customCommands.indices, id: \.self) { index in
+                    HStack {
+                        if isEditing {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                        Text(profile.customCommands[index])
+                            .font(.system(.body, design: .monospaced))
+                        Spacer()
+                    }
+                    .tag(profile.customCommands[index])
+                }
+                .onMove { source, destination in
+                    if isEditing {
+                        profile.customCommands.move(fromOffsets: source, toOffset: destination)
+                    }
                 }
                 .onDelete { indices in
                     if isEditing {
@@ -329,26 +348,48 @@ struct CommandsTabView: View {
                     }
                 }
             }
-            .frame(minHeight: 100)
+            .frame(minHeight: 100, maxHeight: 300)
+            .listStyle(.bordered(alternatesRowBackgrounds: true))
             
             if isEditing {
-                HStack {
-                    TextField("New command", text: $newCommand)
-                        .textFieldStyle(.roundedBorder)
-                        .onAppear {
-                            // Activate the app when text field appears
-                            NSApp.activate(ignoringOtherApps: true)
-                        }
-                        .onSubmit {
+                VStack(spacing: 8) {
+                    HStack {
+                        TextField("New command", text: $newCommand)
+                            .textFieldStyle(.roundedBorder)
+                            .onAppear {
+                                NSApp.activate(ignoringOtherApps: true)
+                            }
+                            .onSubmit {
+                                if !newCommand.isEmpty {
+                                    profile.customCommands.append(newCommand)
+                                    newCommand = ""
+                                }
+                            }
+                        Button("Add") {
                             if !newCommand.isEmpty {
                                 profile.customCommands.append(newCommand)
                                 newCommand = ""
                             }
                         }
-                    Button("Add") {
-                        if !newCommand.isEmpty {
-                            profile.customCommands.append(newCommand)
-                            newCommand = ""
+                        .keyboardShortcut(.return, modifiers: [])
+                    }
+                    
+                    if !selection.isEmpty {
+                        HStack {
+                            Button(action: {
+                                profile.customCommands.removeAll { selection.contains($0) }
+                                selection.removeAll()
+                            }) {
+                                Label("Delete Selected", systemImage: "trash")
+                                    .foregroundColor(.red)
+                            }
+                            .buttonStyle(.bordered)
+                            
+                            Spacer()
+                            
+                            Text("\(selection.count) selected")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                     }
                 }

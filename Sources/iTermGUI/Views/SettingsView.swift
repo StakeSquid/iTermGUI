@@ -290,19 +290,49 @@ struct GlobalDefaultsSettings: View {
 struct CustomCommandsEditor: View {
     @Binding var commands: [String]
     @State private var newCommand = ""
+    @State private var selection = Set<String>()
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            List {
-                ForEach(commands, id: \.self) { command in
-                    Text(command)
-                        .font(.system(.body, design: .monospaced))
+            HStack {
+                Text("Drag to reorder • Click to select • Delete key to remove")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                Spacer()
+                if !selection.isEmpty {
+                    Text("\(selection.count) selected")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            List(selection: $selection) {
+                ForEach(commands.indices, id: \.self) { index in
+                    HStack {
+                        Image(systemName: "line.3.horizontal")
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                        Text(commands[index])
+                            .font(.system(.body, design: .monospaced))
+                        Spacer()
+                    }
+                    .tag(commands[index])
+                }
+                .onMove { source, destination in
+                    commands.move(fromOffsets: source, toOffset: destination)
                 }
                 .onDelete { indices in
                     commands.remove(atOffsets: indices)
                 }
             }
-            .frame(minHeight: 100, maxHeight: 150)
+            .frame(minHeight: 100, maxHeight: 200)
+            .listStyle(.bordered(alternatesRowBackgrounds: true))
+            .onDeleteCommand {
+                if !selection.isEmpty {
+                    commands.removeAll { selection.contains($0) }
+                    selection.removeAll()
+                }
+            }
             
             HStack {
                 TextField("New command", text: $newCommand)
@@ -318,6 +348,18 @@ struct CustomCommandsEditor: View {
                         commands.append(newCommand)
                         newCommand = ""
                     }
+                }
+                .keyboardShortcut(.return, modifiers: [])
+                
+                if !selection.isEmpty {
+                    Button(action: {
+                        commands.removeAll { selection.contains($0) }
+                        selection.removeAll()
+                    }) {
+                        Label("Delete", systemImage: "trash")
+                            .foregroundColor(.red)
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
         }
