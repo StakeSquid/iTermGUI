@@ -27,6 +27,7 @@ enum ProfileSortOption: String, CaseIterable {
 
 @MainActor
 class ProfileManager: ObservableObject {
+    static let shared = ProfileManager()
     @Published var profiles: [SSHProfile] = []
     @Published var groups: [ProfileGroup] = ProfileGroup.defaultGroups
     @Published var selectedProfile: SSHProfile?
@@ -173,7 +174,6 @@ class ProfileManager: ObservableObject {
             authMethod: profile.authMethod,
             privateKeyPath: profile.privateKeyPath,
             password: profile.password,
-            group: profile.group,
             tags: profile.tags,
             jumpHost: profile.jumpHost,
             localForwards: profile.localForwards,
@@ -205,7 +205,7 @@ class ProfileManager: ObservableObject {
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
             profiles[index].lastUsed = Date()
         }
-        iTerm2Service.openConnection(profile: profile, mode: .windows)
+        iTerm2Service.openConnection(profile: profile, mode: connectionMode)
     }
     
     func connectToProfiles(_ profiles: [SSHProfile], mode: ConnectionMode = .tabs) {

@@ -4,6 +4,8 @@ struct SidebarView: View {
     @EnvironmentObject var profileManager: ProfileManager
     @State private var isAddingGroup = false
     @State private var newGroupName = ""
+    @State private var renamingGroup: ProfileGroup?
+    @State private var renameText = ""
     
     var body: some View {
         List(selection: $profileManager.selectedGroup) {
@@ -27,7 +29,8 @@ struct SidebarView: View {
                     .contextMenu {
                         if !["All Profiles", "Favorites", "Recent"].contains(group.name) {
                             Button("Rename") {
-                                // TODO: Implement rename
+                                renameText = group.name
+                                renamingGroup = group
                             }
                             Button("Delete", role: .destructive) {
                                 profileManager.groups.removeAll { $0.id == group.id }
@@ -83,6 +86,36 @@ struct SidebarView: View {
             if profileManager.selectedGroup == nil {
                 profileManager.selectedGroup = profileManager.groups.first
             }
+        }
+        .sheet(item: $renamingGroup) { group in
+            VStack(spacing: 15) {
+                Text("Rename Group")
+                    .font(.headline)
+                TextField("Group Name", text: $renameText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 200)
+                HStack {
+                    Button("Cancel") {
+                        renamingGroup = nil
+                        renameText = ""
+                    }
+                    .keyboardShortcut(.escape)
+                    
+                    Button("Rename") {
+                        if !renameText.isEmpty,
+                           let index = profileManager.groups.firstIndex(where: { $0.id == group.id }) {
+                            profileManager.groups[index].name = renameText
+                            profileManager.saveProfiles()
+                        }
+                        renamingGroup = nil
+                        renameText = ""
+                    }
+                    .keyboardShortcut(.return)
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding()
+            .frame(width: 300, height: 150)
         }
     }
 }

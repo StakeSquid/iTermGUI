@@ -37,13 +37,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    @objc func togglePopover() {
+    @MainActor @objc func togglePopover() {
         if let button = statusBarItem?.button {
             if popover == nil {
                 let popover = NSPopover()
                 popover.contentSize = NSSize(width: 300, height: 400)
                 popover.behavior = .transient
-                popover.contentViewController = NSHostingController(rootView: QuickConnectView())
+                popover.contentViewController = NSHostingController(rootView: QuickConnectView().environmentObject(ProfileManager.shared))
                 self.popover = popover
             }
             

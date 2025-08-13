@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct iTermGUIApp: App {
-    @StateObject private var profileManager = ProfileManager()
+    @StateObject private var profileManager = ProfileManager.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     var body: some Scene {

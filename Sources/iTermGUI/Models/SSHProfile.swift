@@ -10,7 +10,6 @@ struct SSHProfile: Identifiable, Codable, Hashable {
     var authMethod: AuthMethod
     var privateKeyPath: String?
     var password: String?
-    var group: ProfileGroup?
     var tags: Set<String>
     var jumpHost: String?
     var localForwards: [PortForward]
@@ -37,7 +36,6 @@ struct SSHProfile: Identifiable, Codable, Hashable {
         authMethod: AuthMethod = .publicKey,
         privateKeyPath: String? = nil,
         password: String? = nil,
-        group: ProfileGroup? = nil,
         tags: Set<String> = [],
         jumpHost: String? = nil,
         localForwards: [PortForward] = [],
@@ -63,7 +61,6 @@ struct SSHProfile: Identifiable, Codable, Hashable {
         self.authMethod = authMethod
         self.privateKeyPath = privateKeyPath
         self.password = password
-        self.group = group
         self.tags = tags
         self.jumpHost = jumpHost
         self.localForwards = localForwards

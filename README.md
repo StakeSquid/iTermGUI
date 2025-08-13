@@ -119,11 +119,12 @@ iTermGUI/
 - **Groups**: Profiles are automatically grouped (All, Favorites, Recent)
 
 #### Connecting to Servers
-- **Single Connection**: Double-click a profile or select and press Enter
+- **Single Connection**: Select a profile and press Enter (or use the Connect button)
 - **Multiple Connections**: 
   - Use Cmd+Click to select multiple profiles
-  - Choose "Connect in Tabs" or "Connect in Windows" from the toolbar
+  - Press Enter or choose "Connect in Tabs" or "Connect in Windows" from the toolbar
 - **Quick Connect**: Use the context menu (right-click) for quick actions
+- **Menu Bar**: Click the terminal icon in the menu bar for quick access to favorite and recent profiles
 
 ### Advanced Features
 
