@@ -1,0 +1,34 @@
+# macOS
+.DS_Store
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+.package.resolved
+
+# Build artifacts
+Build/
+DerivedData/
+*.app
+*.dmg
+*.zip
+
+# Temporary files
+*.swp
+*.tmp
+*~
+
+# IDE
+.vscode/
+.idea/
+*.xcworkspace
+
+# Test coverage
+*.lcov
+.coverage/
+
+# Debug
+*.dSYM/
