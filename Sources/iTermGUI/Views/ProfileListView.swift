@@ -1,7 +1,9 @@
 import SwiftUI
+import AppKit
 
 struct ProfileListView: View {
     @EnvironmentObject var profileManager: ProfileManager
+    @State private var doubleClickMonitor: Any?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +20,15 @@ struct ProfileListView: View {
             List(profileManager.filteredProfiles, selection: $profileManager.selectedProfiles) { profile in
                 ProfileRow(profile: profile)
                     .tag(profile)
+                    .background(
+                        Color.clear
+                            .onAppear {
+                                // Set up double-click monitoring when a row appears
+                                if doubleClickMonitor == nil {
+                                    setupDoubleClickMonitor()
+                                }
+                            }
+                    )
                     .contextMenu {
                         if profileManager.selectedProfiles.contains(profile) && profileManager.selectedProfiles.count > 1 {
                             // Multi-selection context menu
@@ -146,6 +157,31 @@ struct ProfileListView: View {
                     profileManager.connectToProfiles(Array(profileManager.selectedProfiles), mode: .tabs)
                 }
             }
+        }
+        .onDisappear {
+            // Clean up the event monitor
+            if let monitor = doubleClickMonitor {
+                NSEvent.removeMonitor(monitor)
+                doubleClickMonitor = nil
+            }
+        }
+    }
+    
+    private func setupDoubleClickMonitor() {
+        doubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            if event.clickCount == 2 {
+                // Double-click detected
+                if let firstProfile = profileManager.selectedProfiles.first {
+                    DispatchQueue.main.async {
+                        if profileManager.selectedProfiles.count == 1 {
+                            profileManager.connectToProfile(firstProfile)
+                        } else {
+                            profileManager.connectToProfiles(Array(profileManager.selectedProfiles), mode: .tabs)
+                        }
+                    }
+                }
+            }
+            return event
         }
     }
 }
