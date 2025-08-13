@@ -1,16 +1,34 @@
 # iTermGUI
 
-A native macOS application for managing SSH profiles with iTerm2 integration.
+A powerful native macOS application for managing SSH profiles with seamless iTerm2 integration.
 
 ## Features
 
-- 🚀 Quick SSH connection management
-- 📁 Import from ~/.ssh/config
-- 🔐 Secure password storage in macOS Keychain
-- 🎨 iTerm2 Dynamic Profiles integration
-- 📋 Multi-selection support for batch connections
-- 🏷️ Tag-based organization
-- ⭐ Favorite profiles for quick access
+### Profile Management
+- 🚀 **Quick SSH Connections** - Connect to servers with one click
+- 📁 **Import/Export** - Import from ~/.ssh/config, export to various formats
+- 🔐 **Secure Storage** - Passwords stored securely in macOS Keychain
+- 📋 **Multi-Selection** - Connect to multiple servers in tabs or windows
+- 🏷️ **Tag Organization** - Organize profiles with custom tags
+- ⭐ **Favorites** - Mark frequently used profiles as favorites
+- 🔍 **Smart Search** - Search by name, host, username, or tags
+- 📊 **Flexible Sorting** - Sort by name, host, last used, creation date, or favorites
+
+### Connection Features
+- 🎨 **iTerm2 Integration** - Creates dynamic iTerm2 profiles automatically
+- 🔗 **Jump Hosts** - Configure ProxyJump for bastion hosts
+- 🚇 **Port Forwarding** - Local and remote port forwarding support
+- 🔑 **Multiple Auth Methods** - Public key, password, keyboard-interactive, certificate
+- ⚙️ **Advanced Options** - Compression, timeouts, keep-alive, strict host checking
+- 📝 **Custom Commands** - Run commands automatically on connection
+- ♻️ **Command Management** - Add, delete, and reorder commands with drag & drop
+
+### Global Settings
+- 🎯 **Default Settings** - Configure global defaults for new profiles
+- 🔄 **Bulk Updates** - Apply default settings to all existing profiles
+- 💾 **Profile Templates** - Save any profile's settings as new defaults
+- 🖥️ **Terminal Customization** - Default color schemes, fonts, cursor styles
+- ⏱️ **Connection Defaults** - Default timeouts, compression, and security settings
 
 ## Installation
 
@@ -81,11 +99,68 @@ iTermGUI/
 
 ## Usage
 
-1. Launch iTermGUI from your Applications folder
-2. Import existing SSH profiles from ~/.ssh/config or create new ones
-3. Select one or multiple profiles and connect
-4. Use Cmd+Click for multi-selection
-5. Right-click for context menu options
+### Getting Started
+
+1. **Launch iTermGUI** from your Applications folder
+2. **Import existing profiles** from ~/.ssh/config via File → Import
+3. **Create new profiles** using the + button in the toolbar
+
+### Managing Profiles
+
+#### Creating Profiles
+- Click the **+** button to create a new profile
+- New profiles automatically inherit your global default settings
+- Configure connection details, authentication, and terminal preferences
+
+#### Organizing Profiles
+- **Search**: Use the search bar to filter profiles by name, host, username, or tags
+- **Sort**: Click the sort dropdown to organize by name, host, recent usage, or favorites
+- **Tags**: Add custom tags to categorize your servers (e.g., "production", "staging", "personal")
+- **Groups**: Profiles are automatically grouped (All, Favorites, Recent)
+
+#### Connecting to Servers
+- **Single Connection**: Double-click a profile or select and press Enter
+- **Multiple Connections**: 
+  - Use Cmd+Click to select multiple profiles
+  - Choose "Connect in Tabs" or "Connect in Windows" from the toolbar
+- **Quick Connect**: Use the context menu (right-click) for quick actions
+
+### Advanced Features
+
+#### SSH Config Wildcards
+If you have SSH config entries with wildcards like:
+```
+Host rpc-br-*
+    HostName %h.stakesquid.eu
+    User root
+    IdentityFile ~/.ssh/stakesquid
+```
+Just use the base hostname (e.g., `rpc-br-5`) in your profile to avoid domain duplication.
+
+#### Global Defaults
+1. Go to **Preferences → Defaults**
+2. Configure your preferred terminal and connection settings
+3. Click **"Apply Defaults to All Profiles"** to update existing profiles
+4. All new profiles will use these settings automatically
+
+#### Command Execution
+- Add commands to run automatically after connection
+- Drag to reorder commands for specific execution order
+- Select multiple commands and delete in bulk
+- Commands are executed in the order shown
+
+#### Port Forwarding
+Configure local and remote port forwarding in the Advanced tab:
+- **Local Forward**: Access remote services through local ports
+- **Remote Forward**: Expose local services to the remote server
+
+### Keyboard Shortcuts
+- **⌘N** - New profile
+- **⌘,** - Preferences
+- **⌘F** - Focus search
+- **⌘⌫** - Delete selected profiles
+- **⏎** - Connect to selected profile(s)
+- **⌘Click** - Multi-select profiles
 
 ## Development
 
@@ -98,6 +173,46 @@ To run in development mode:
 ```bash
 swift run
 ```
+
+To run tests:
+```bash
+swift test
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### "iTermGUI can't be opened because it is from an unidentified developer"
+- Right-click the app and select "Open" to bypass Gatekeeper
+- Or go to System Preferences → Security & Privacy and click "Open Anyway"
+
+#### SSH connection fails with "Could not resolve hostname"
+- Check if you have SSH config wildcards that might be causing hostname duplication
+- Verify the hostname is correct and doesn't include duplicate domains
+- For wildcard configs, use just the base hostname without the domain suffix
+
+#### Profiles not saving
+- Ensure iTermGUI has permission to write to ~/Documents
+- Check System Preferences → Security & Privacy → Files and Folders
+
+#### iTerm2 doesn't open when connecting
+- Verify iTerm2 is installed in /Applications
+- Check that iTerm2's AppleScript support is enabled
+- Try launching iTerm2 manually first, then using iTermGUI
+
+### Data Storage
+
+iTermGUI stores data in the following locations:
+- **Profiles**: `~/Documents/profiles.json`
+- **Groups**: `~/Documents/groups.json`
+- **Global Defaults**: `~/Documents/defaults.json`
+- **Passwords**: macOS Keychain (secure)
+- **Dynamic Profiles**: `~/Library/Application Support/iTerm2/DynamicProfiles/`
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
