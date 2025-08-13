@@ -114,6 +114,16 @@ struct ProfileListView: View {
                 profileManager.deleteProfile(profile)
             }
         }
+        .onSubmit {
+            // Connect when pressing Enter
+            if let firstProfile = profileManager.selectedProfiles.first {
+                if profileManager.selectedProfiles.count == 1 {
+                    profileManager.connectToProfile(firstProfile)
+                } else {
+                    profileManager.connectToProfiles(Array(profileManager.selectedProfiles), mode: .tabs)
+                }
+            }
+        }
     }
 }
 
