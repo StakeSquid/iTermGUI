@@ -53,6 +53,21 @@ struct EmptyStateView: View {
                     Label("Import SSH Config", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.bordered)
+                
+                if #available(macOS 14.0, *) {
+                    SettingsLink {
+                        Label("Settings", systemImage: "gearshape")
+                            .frame(minWidth: 80)
+                    }
+                    .buttonStyle(.bordered)
+                } else {
+                    Button(action: {
+                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+                    }) {
+                        Label("Settings", systemImage: "gearshape")
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

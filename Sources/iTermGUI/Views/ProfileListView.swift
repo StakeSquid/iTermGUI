@@ -92,6 +92,22 @@ struct ProfileListView: View {
                     Image(systemName: "plus")
                 }
             }
+            
+            ToolbarItem(placement: .automatic) {
+                if #available(macOS 14.0, *) {
+                    SettingsLink {
+                        Image(systemName: "gearshape")
+                    }
+                    .help("Open Settings (⌘,)")
+                } else {
+                    Button(action: {
+                        NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
+                    }) {
+                        Image(systemName: "gearshape")
+                    }
+                    .help("Open Settings (⌘,)")
+                }
+            }
         }
         .onDeleteCommand {
             for profile in profileManager.selectedProfiles {

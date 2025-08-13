@@ -3,7 +3,8 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(swift build:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(swift run:*)"
     ],
     "deny": [],
     "ask": []
