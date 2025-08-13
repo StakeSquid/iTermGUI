@@ -35,8 +35,13 @@ struct SettingsView: View {
             .tabItem {
                 Label("Import/Export", systemImage: "square.and.arrow.up.on.square")
             }
+            
+            GlobalDefaultsSettings()
+            .tabItem {
+                Label("Defaults", systemImage: "text.badge.checkmark")
+            }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
     }
 }
 
@@ -186,6 +191,136 @@ struct ImportExportSettings: View {
     
     private func exportSelected() {
         // TODO: Implement export selected
+    }
+}
+
+struct GlobalDefaultsSettings: View {
+    @EnvironmentObject var profileManager: ProfileManager
+    @State private var showingApplyAlert = false
+    @State private var showingSaveAlert = false
+    
+    var body: some View {
+        Form {
+            Section("Terminal Settings") {
+                TextField("Color Scheme", text: $profileManager.globalDefaults.terminalSettings.colorScheme)
+                TextField("Font Family", text: $profileManager.globalDefaults.terminalSettings.fontFamily)
+                Stepper("Font Size: \(profileManager.globalDefaults.terminalSettings.fontSize)", 
+                       value: $profileManager.globalDefaults.terminalSettings.fontSize, 
+                       in: 8...24)
+                
+                Picker("Cursor Style", selection: $profileManager.globalDefaults.terminalSettings.cursorStyle) {
+                    ForEach(CursorStyle.allCases, id: \.self) { style in
+                        Text(style.rawValue).tag(style)
+                    }
+                }
+                
+                HStack {
+                    Text("Scrollback Lines")
+                    TextField("lines", value: $profileManager.globalDefaults.terminalSettings.scrollbackLines, format: .number)
+                        .frame(width: 80)
+                }
+            }
+            
+            Section("Connection Settings") {
+                Toggle("Compression", isOn: $profileManager.globalDefaults.compression)
+                Toggle("Strict Host Key Checking", isOn: $profileManager.globalDefaults.strictHostKeyChecking)
+                
+                HStack {
+                    Text("Connection Timeout")
+                    TextField("seconds", value: $profileManager.globalDefaults.connectionTimeout, format: .number)
+                        .frame(width: 60)
+                    Text("seconds")
+                }
+                
+                HStack {
+                    Text("Server Alive Interval")
+                    TextField("seconds", value: $profileManager.globalDefaults.serverAliveInterval, format: .number)
+                        .frame(width: 60)
+                    Text("seconds")
+                }
+            }
+            
+            Section("Default Commands") {
+                Text("Commands to run on connection:")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                CustomCommandsEditor(commands: $profileManager.globalDefaults.customCommands)
+            }
+            
+            Section {
+                HStack {
+                    Spacer()
+                    
+                    if let selectedProfile = profileManager.selectedProfile {
+                        Button("Save Current Profile as Defaults") {
+                            profileManager.saveCurrentProfileAsDefaults(selectedProfile)
+                            showingSaveAlert = true
+                        }
+                        .help("Use the settings from the currently selected profile as the new defaults")
+                    }
+                    
+                    Button("Apply Defaults to All Profiles") {
+                        showingApplyAlert = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Update all existing profiles with the current default settings")
+                    
+                    Spacer()
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .alert("Defaults Saved", isPresented: $showingSaveAlert) {
+            Button("OK") { }
+        } message: {
+            Text("The current profile's settings have been saved as the new defaults.")
+        }
+        .alert("Apply Defaults to All Profiles?", isPresented: $showingApplyAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Apply", role: .destructive) {
+                profileManager.applyDefaultsToAllProfiles()
+            }
+        } message: {
+            Text("This will update all existing profiles with the current default settings. This action cannot be undone.")
+        }
+    }
+}
+
+struct CustomCommandsEditor: View {
+    @Binding var commands: [String]
+    @State private var newCommand = ""
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            List {
+                ForEach(commands, id: \.self) { command in
+                    Text(command)
+                        .font(.system(.body, design: .monospaced))
+                }
+                .onDelete { indices in
+                    commands.remove(atOffsets: indices)
+                }
+            }
+            .frame(minHeight: 100, maxHeight: 150)
+            
+            HStack {
+                TextField("New command", text: $newCommand)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        if !newCommand.isEmpty {
+                            commands.append(newCommand)
+                            newCommand = ""
+                        }
+                    }
+                Button("Add") {
+                    if !newCommand.isEmpty {
+                        commands.append(newCommand)
+                        newCommand = ""
+                    }
+                }
+            }
+        }
     }
 }
 

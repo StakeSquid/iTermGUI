@@ -18,6 +18,10 @@ class ProfileStorage {
         documentsDirectory.appendingPathComponent("groups.json")
     }
     
+    private var defaultsFile: URL {
+        documentsDirectory.appendingPathComponent("defaults.json")
+    }
+    
     func loadProfiles() -> [SSHProfile] {
         guard let data = try? Data(contentsOf: profilesFile) else {
             return []
@@ -138,5 +142,27 @@ class ProfileStorage {
     func importProfiles(from url: URL) throws -> [SSHProfile] {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode([SSHProfile].self, from: data)
+    }
+    
+    func loadGlobalDefaults() -> GlobalDefaults {
+        guard let data = try? Data(contentsOf: defaultsFile) else {
+            return GlobalDefaults.standard
+        }
+        
+        do {
+            return try JSONDecoder().decode(GlobalDefaults.self, from: data)
+        } catch {
+            print("Error loading global defaults: \(error)")
+            return GlobalDefaults.standard
+        }
+    }
+    
+    func saveGlobalDefaults(_ defaults: GlobalDefaults) {
+        do {
+            let data = try JSONEncoder().encode(defaults)
+            try data.write(to: defaultsFile)
+        } catch {
+            print("Error saving global defaults: \(error)")
+        }
     }
 }

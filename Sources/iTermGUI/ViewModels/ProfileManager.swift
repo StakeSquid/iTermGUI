@@ -38,6 +38,7 @@ class ProfileManager: ObservableObject {
     @Published var connectionMode: ConnectionMode = .tabs
     @Published var sortOption: ProfileSortOption = .name
     @Published var sortAscending: Bool = true
+    @Published var globalDefaults: GlobalDefaults = GlobalDefaults.standard
     
     private let storage = ProfileStorage()
     private let sshConfigParser = SSHConfigParser()
@@ -113,6 +114,13 @@ class ProfileManager: ObservableObject {
                 self?.saveProfiles()
             }
             .store(in: &cancellables)
+        
+        $globalDefaults
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] defaults in
+                self?.storage.saveGlobalDefaults(defaults)
+            }
+            .store(in: &cancellables)
     }
     
     func loadProfiles() {
@@ -121,6 +129,7 @@ class ProfileManager: ObservableObject {
         if groups.isEmpty {
             groups = ProfileGroup.defaultGroups
         }
+        globalDefaults = storage.loadGlobalDefaults()
     }
     
     func saveProfiles() {
@@ -132,7 +141,13 @@ class ProfileManager: ObservableObject {
         let newProfile = SSHProfile(
             name: "New Profile",
             host: "hostname.example.com",
-            username: NSUserName()
+            username: NSUserName(),
+            strictHostKeyChecking: globalDefaults.strictHostKeyChecking,
+            compression: globalDefaults.compression,
+            connectionTimeout: globalDefaults.connectionTimeout,
+            serverAliveInterval: globalDefaults.serverAliveInterval,
+            customCommands: globalDefaults.customCommands,
+            terminalSettings: globalDefaults.terminalSettings
         )
         profiles.append(newProfile)
         selectedProfile = newProfile
@@ -282,5 +297,24 @@ class ProfileManager: ObservableObject {
         if let index = groups.firstIndex(where: { $0.id == group.id }) {
             groups[index].profileIDs.remove(profile.id)
         }
+    }
+    
+    func applyDefaultsToAllProfiles() {
+        for i in profiles.indices {
+            globalDefaults.applyToProfile(&profiles[i])
+        }
+        saveProfiles()
+    }
+    
+    func saveCurrentProfileAsDefaults(_ profile: SSHProfile) {
+        globalDefaults = GlobalDefaults(
+            terminalSettings: profile.terminalSettings,
+            customCommands: profile.customCommands,
+            connectionTimeout: profile.connectionTimeout,
+            serverAliveInterval: profile.serverAliveInterval,
+            strictHostKeyChecking: profile.strictHostKeyChecking,
+            compression: profile.compression
+        )
+        storage.saveGlobalDefaults(globalDefaults)
     }
 }
