@@ -27,6 +27,7 @@ struct SettingsView: View {
                 autoBackup: $autoBackup,
                 backupInterval: $backupInterval
             )
+            .environmentObject(profileManager)
             .tabItem {
                 Label("Backup", systemImage: "externaldrive")
             }
@@ -75,9 +76,16 @@ struct GeneralSettings: View {
 }
 
 struct BackupSettings: View {
+    @EnvironmentObject var profileManager: ProfileManager
     @Binding var autoBackup: Bool
     @Binding var backupInterval: Int
     @State private var backupLocation: String = "~/Documents/iTermGUI Backups"
+    @State private var showingBackupAlert = false
+    @State private var showingRestoreAlert = false
+    @State private var backupMessage = ""
+    @State private var restoreMessage = ""
+    @State private var isBackupSuccess = false
+    @State private var isRestoreSuccess = false
     
     var body: some View {
         Form {
@@ -119,15 +127,99 @@ struct BackupSettings: View {
         }
         .formStyle(.grouped)
         .padding()
+        .alert(isBackupSuccess ? "Backup Successful" : "Backup Failed", isPresented: $showingBackupAlert) {
+            Button("OK") { }
+        } message: {
+            Text(backupMessage)
+        }
+        .alert(isRestoreSuccess ? "Restore Successful" : "Restore Failed", isPresented: $showingRestoreAlert) {
+            if isRestoreSuccess {
+                Button("OK") {
+                    profileManager.loadProfiles()
+                }
+            } else {
+                Button("OK") { }
+            }
+        } message: {
+            Text(restoreMessage)
+        }
     }
     
     private func performBackup() {
-        // TODO: Implement backup
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "iTermGUI_Backup_\(Date().formatted(date: .abbreviated, time: .omitted).replacingOccurrences(of: "/", with: "-")).json"
+        panel.allowedContentTypes = [.json]
+        panel.message = "Choose location for backup file"
+        
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    let backupData = BackupData(
+                        profiles: profileManager.profiles,
+                        groups: profileManager.groups,
+                        globalDefaults: profileManager.globalDefaults,
+                        backupDate: Date()
+                    )
+                    
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = .prettyPrinted
+                    encoder.dateEncodingStrategy = .iso8601
+                    let data = try encoder.encode(backupData)
+                    try data.write(to: url)
+                    
+                    backupMessage = "Backup saved successfully to \(url.lastPathComponent)"
+                    isBackupSuccess = true
+                } catch {
+                    backupMessage = "Failed to save backup: \(error.localizedDescription)"
+                    isBackupSuccess = false
+                }
+                showingBackupAlert = true
+            }
+        }
     }
     
     private func restoreFromBackup() {
-        // TODO: Implement restore
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.message = "Select backup file to restore"
+        
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    let data = try Data(contentsOf: url)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    let backupData = try decoder.decode(BackupData.self, from: data)
+                    
+                    // Apply the restored data
+                    profileManager.profiles = backupData.profiles
+                    profileManager.groups = backupData.groups
+                    profileManager.globalDefaults = backupData.globalDefaults
+                    profileManager.saveProfiles()
+                    
+                    let dateFormatter = DateFormatter()
+                    dateFormatter.dateStyle = .medium
+                    dateFormatter.timeStyle = .short
+                    
+                    restoreMessage = "Successfully restored \(backupData.profiles.count) profiles from backup created on \(dateFormatter.string(from: backupData.backupDate))"
+                    isRestoreSuccess = true
+                } catch {
+                    restoreMessage = "Failed to restore backup: \(error.localizedDescription)"
+                    isRestoreSuccess = false
+                }
+                showingRestoreAlert = true
+            }
+        }
     }
+}
+
+// Backup data structure
+struct BackupData: Codable {
+    let profiles: [SSHProfile]
+    let groups: [ProfileGroup]
+    let globalDefaults: GlobalDefaults
+    let backupDate: Date
 }
 
 struct ImportExportSettings: View {

@@ -204,11 +204,13 @@ swift test
 ### Data Storage
 
 iTermGUI stores data in the following locations:
-- **Profiles**: `~/Documents/profiles.json`
-- **Groups**: `~/Documents/groups.json`
-- **Global Defaults**: `~/Documents/defaults.json`
+- **Profiles**: `~/Documents/iTermGUI/profiles.json`
+- **Groups**: `~/Documents/iTermGUI/groups.json`
+- **Global Defaults**: `~/Documents/iTermGUI/defaults.json`
 - **Passwords**: macOS Keychain (secure)
 - **Dynamic Profiles**: `~/Library/Application Support/iTerm2/DynamicProfiles/`
+
+Note: If you have existing files from an older version in `~/Documents`, they will be automatically migrated to `~/Documents/iTermGUI/` on first launch.
 
 ## Contributing
 

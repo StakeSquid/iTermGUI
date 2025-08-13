@@ -6,20 +6,74 @@ class ProfileStorage {
     private let groupsKey = "com.iTermGUI.groups"
     private let keychainService = "com.iTermGUI.passwords"
     
-    private var documentsDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+    private var appDirectory: URL {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        return documentsDirectory.appendingPathComponent("iTermGUI")
     }
     
     private var profilesFile: URL {
-        documentsDirectory.appendingPathComponent("profiles.json")
+        appDirectory.appendingPathComponent("profiles.json")
     }
     
     private var groupsFile: URL {
-        documentsDirectory.appendingPathComponent("groups.json")
+        appDirectory.appendingPathComponent("groups.json")
     }
     
     private var defaultsFile: URL {
-        documentsDirectory.appendingPathComponent("defaults.json")
+        appDirectory.appendingPathComponent("defaults.json")
+    }
+    
+    init() {
+        createAppDirectoryIfNeeded()
+        migrateOldFilesIfNeeded()
+    }
+    
+    private func createAppDirectoryIfNeeded() {
+        do {
+            try FileManager.default.createDirectory(at: appDirectory, withIntermediateDirectories: true, attributes: nil)
+        } catch {
+            print("Error creating app directory: \(error)")
+        }
+    }
+    
+    private func migrateOldFilesIfNeeded() {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let oldProfilesFile = documentsDirectory.appendingPathComponent("profiles.json")
+        let oldGroupsFile = documentsDirectory.appendingPathComponent("groups.json")
+        let oldDefaultsFile = documentsDirectory.appendingPathComponent("defaults.json")
+        
+        // Migrate profiles.json
+        if FileManager.default.fileExists(atPath: oldProfilesFile.path) &&
+           !FileManager.default.fileExists(atPath: profilesFile.path) {
+            do {
+                try FileManager.default.moveItem(at: oldProfilesFile, to: profilesFile)
+                print("Migrated profiles.json to iTermGUI folder")
+            } catch {
+                print("Error migrating profiles.json: \(error)")
+            }
+        }
+        
+        // Migrate groups.json
+        if FileManager.default.fileExists(atPath: oldGroupsFile.path) &&
+           !FileManager.default.fileExists(atPath: groupsFile.path) {
+            do {
+                try FileManager.default.moveItem(at: oldGroupsFile, to: groupsFile)
+                print("Migrated groups.json to iTermGUI folder")
+            } catch {
+                print("Error migrating groups.json: \(error)")
+            }
+        }
+        
+        // Migrate defaults.json
+        if FileManager.default.fileExists(atPath: oldDefaultsFile.path) &&
+           !FileManager.default.fileExists(atPath: defaultsFile.path) {
+            do {
+                try FileManager.default.moveItem(at: oldDefaultsFile, to: defaultsFile)
+                print("Migrated defaults.json to iTermGUI folder")
+            } catch {
+                print("Error migrating defaults.json: \(error)")
+            }
+        }
     }
     
     func loadProfiles() -> [SSHProfile] {
