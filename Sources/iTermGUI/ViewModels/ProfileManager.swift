@@ -7,6 +7,24 @@ enum ConnectionMode: String, CaseIterable {
     case windows = "Separate Windows"
 }
 
+enum ProfileSortOption: String, CaseIterable {
+    case name = "Name"
+    case host = "Host"
+    case lastUsed = "Recently Used"
+    case createdAt = "Date Created"
+    case favorite = "Favorites First"
+    
+    var systemImage: String {
+        switch self {
+        case .name: return "textformat"
+        case .host: return "network"
+        case .lastUsed: return "clock"
+        case .createdAt: return "calendar"
+        case .favorite: return "star"
+        }
+    }
+}
+
 @MainActor
 class ProfileManager: ObservableObject {
     @Published var profiles: [SSHProfile] = []
@@ -18,6 +36,8 @@ class ProfileManager: ObservableObject {
     @Published var isImporting: Bool = false
     @Published var isExporting: Bool = false
     @Published var connectionMode: ConnectionMode = .tabs
+    @Published var sortOption: ProfileSortOption = .name
+    @Published var sortAscending: Bool = true
     
     private let storage = ProfileStorage()
     private let sshConfigParser = SSHConfigParser()
@@ -32,22 +52,53 @@ class ProfileManager: ObservableObject {
             $0.tags.contains { $0.localizedCaseInsensitiveContains(searchText) }
         }
         
+        var result: [SSHProfile]
+        
         if let group = selectedGroup {
             switch group.name {
             case "All Profiles":
-                return filtered
+                result = filtered
             case "Favorites":
-                return filtered.filter { $0.isFavorite }
+                result = filtered.filter { $0.isFavorite }
             case "Recent":
                 return filtered.filter { $0.lastUsed != nil }.sorted {
                     ($0.lastUsed ?? Date.distantPast) > ($1.lastUsed ?? Date.distantPast)
                 }.prefix(10).map { $0 }
             default:
-                return filtered.filter { group.profileIDs.contains($0.id) }
+                result = filtered.filter { group.profileIDs.contains($0.id) }
             }
+        } else {
+            result = filtered
         }
         
-        return filtered
+        return sortProfiles(result)
+    }
+    
+    private func sortProfiles(_ profiles: [SSHProfile]) -> [SSHProfile] {
+        let sorted = profiles.sorted { lhs, rhs in
+            switch sortOption {
+            case .name:
+                return sortAscending ? 
+                    lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending :
+                    lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
+            case .host:
+                return sortAscending ?
+                    lhs.host.localizedCaseInsensitiveCompare(rhs.host) == .orderedAscending :
+                    lhs.host.localizedCaseInsensitiveCompare(rhs.host) == .orderedDescending
+            case .lastUsed:
+                let lhsDate = lhs.lastUsed ?? Date.distantPast
+                let rhsDate = rhs.lastUsed ?? Date.distantPast
+                return sortAscending ? lhsDate < rhsDate : lhsDate > rhsDate
+            case .createdAt:
+                return sortAscending ? lhs.createdAt < rhs.createdAt : lhs.createdAt > rhs.createdAt
+            case .favorite:
+                if lhs.isFavorite != rhs.isFavorite {
+                    return sortAscending ? lhs.isFavorite && !rhs.isFavorite : !lhs.isFavorite && rhs.isFavorite
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+        }
+        return sorted
     }
     
     init() {

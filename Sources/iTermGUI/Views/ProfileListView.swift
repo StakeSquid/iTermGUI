@@ -5,9 +5,15 @@ struct ProfileListView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            SearchBar(text: $profileManager.searchText)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
+            VStack(spacing: 8) {
+                SearchBar(text: $profileManager.searchText)
+                    .padding(.horizontal)
+                
+                SortBar(sortOption: $profileManager.sortOption, 
+                        sortAscending: $profileManager.sortAscending)
+                    .padding(.horizontal)
+            }
+            .padding(.vertical, 8)
             
             List(profileManager.filteredProfiles, selection: $profileManager.selectedProfiles) { profile in
                 ProfileRow(profile: profile)
@@ -141,6 +147,42 @@ struct SearchBar: View {
                 }
                 .buttonStyle(.plain)
             }
+        }
+        .padding(8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+    }
+}
+
+struct SortBar: View {
+    @Binding var sortOption: ProfileSortOption
+    @Binding var sortAscending: Bool
+    
+    var body: some View {
+        HStack {
+            Label("Sort by:", systemImage: "arrow.up.arrow.down")
+                .foregroundColor(.secondary)
+                .labelStyle(.titleAndIcon)
+            
+            Picker("Sort by", selection: $sortOption) {
+                ForEach(ProfileSortOption.allCases, id: \.self) { option in
+                    Label(option.rawValue, systemImage: option.systemImage)
+                        .tag(option)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            
+            Button(action: {
+                sortAscending.toggle()
+            }) {
+                Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                    .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+            .help(sortAscending ? "Sort ascending" : "Sort descending")
+            
+            Spacer()
         }
         .padding(8)
         .background(Color(NSColor.controlBackgroundColor))
