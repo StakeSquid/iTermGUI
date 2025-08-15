@@ -2,6 +2,11 @@
 
 A powerful native macOS application for managing SSH profiles, connections, and file transfers through iTerm2.
 
+<img width="1670" height="824" alt="Screenshot 2025-08-15 at 7 24 45 PM" src="https://github.com/user-attachments/assets/7a9c3caf-1236-4605-a69b-1aafd968ad9d" />
+
+<img width="1312" height="712" alt="Screenshot 2025-08-15 at 7 24 19 PM" src="https://github.com/user-attachments/assets/a924181f-07ed-4e86-bb48-9672a82e4da4" />
+
+
 ## 🚀 Features
 
 ### SSH Profile Management
