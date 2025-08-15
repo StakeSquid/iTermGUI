@@ -4,7 +4,8 @@
       "Bash(mkdir:*)",
       "Bash(swift build:*)",
       "Bash(mv:*)",
-      "Bash(swift run:*)"
+      "Bash(swift run:*)",
+      "Bash(./Scripts/build_app.sh:*)"
     ],
     "deny": [],
     "ask": [],

@@ -12,17 +12,15 @@ class ITerm2Service {
     }
     
     func openConnection(profile: SSHProfile, mode: ConnectionMode = .windows) {
-        createDynamicProfile(for: profile)
+        updateDynamicProfiles(with: [profile])
         launchITerm2WithProfile(profile.name, newWindow: true)
     }
     
     func openConnections(profiles: [SSHProfile], mode: ConnectionMode) {
         guard !profiles.isEmpty else { return }
         
-        // Create dynamic profiles for all connections
-        for profile in profiles {
-            createDynamicProfile(for: profile)
-        }
+        // Update dynamic profiles for all connections
+        updateDynamicProfiles(with: profiles)
         
         // Launch connections based on mode
         switch mode {
@@ -35,18 +33,76 @@ class ITerm2Service {
         }
     }
     
-    private func createDynamicProfile(for profile: SSHProfile) {
+    private func updateDynamicProfiles(with profiles: [SSHProfile]) {
         ensureDynamicProfilesDirectory()
         
-        let dynamicProfile = createITerm2Profile(from: profile)
-        let profileData = ["Profiles": [dynamicProfile]]
+        // Load existing profiles from our file
+        let profileFile = dynamicProfilesPath.appendingPathComponent("iTermGUI.json")
+        var existingProfiles: [[String: Any]] = []
+        
+        if let existingData = try? Data(contentsOf: profileFile),
+           let existingJson = try? JSONSerialization.jsonObject(with: existingData) as? [String: Any],
+           let profiles = existingJson["Profiles"] as? [[String: Any]] {
+            existingProfiles = profiles
+        }
+        
+        // Update or add the new profiles
+        for profile in profiles {
+            let dynamicProfile = createITerm2Profile(from: profile)
+            // Remove any existing profile with the same GUID
+            existingProfiles.removeAll { ($0["Guid"] as? String) == profile.id.uuidString }
+            // Add the updated profile
+            existingProfiles.append(dynamicProfile)
+        }
+        
+        // Save all profiles back to the single file
+        let profileData = ["Profiles": existingProfiles]
         
         do {
             let jsonData = try JSONSerialization.data(withJSONObject: profileData, options: .prettyPrinted)
-            let profileFile = dynamicProfilesPath.appendingPathComponent("iTermGUI-\(profile.id.uuidString).json")
             try jsonData.write(to: profileFile)
+            
+            // Clean up old individual profile files if they exist
+            cleanupOldProfileFiles()
         } catch {
-            print("Error creating dynamic profile: \(error)")
+            print("Error updating dynamic profiles: \(error)")
+        }
+    }
+    
+    private func cleanupOldProfileFiles() {
+        do {
+            let files = try FileManager.default.contentsOfDirectory(at: dynamicProfilesPath, includingPropertiesForKeys: nil)
+            for file in files {
+                if file.lastPathComponent.starts(with: "iTermGUI-") && file.lastPathComponent.hasSuffix(".json") && file.lastPathComponent != "iTermGUI.json" {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
+        } catch {
+            // Ignore errors during cleanup
+        }
+    }
+    
+    func syncAllProfiles(_ profiles: [SSHProfile]) {
+        ensureDynamicProfilesDirectory()
+        
+        // Create dynamic profiles for all SSH profiles
+        var dynamicProfiles: [[String: Any]] = []
+        for profile in profiles {
+            dynamicProfiles.append(createITerm2Profile(from: profile))
+        }
+        
+        // Save all profiles to a single file
+        let profileData = ["Profiles": dynamicProfiles]
+        let profileFile = dynamicProfilesPath.appendingPathComponent("iTermGUI.json")
+        
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: profileData, options: .prettyPrinted)
+            try jsonData.write(to: profileFile)
+            
+            // Clean up old individual profile files
+            cleanupOldProfileFiles()
+        } catch {
+            print("Error syncing profiles: \(error)")
         }
     }
     
@@ -106,7 +162,9 @@ class ITerm2Service {
             "Normal Font": "\(profile.terminalSettings.fontFamily) \(profile.terminalSettings.fontSize)",
             "Scrollback Lines": profile.terminalSettings.scrollbackLines,
             "Close Sessions On End": true,
-            "Terminal Type": "xterm-256color"
+            "Terminal Type": "xterm-256color",
+            "Columns": 200,
+            "Rows": 50
         ]
         
         switch profile.terminalSettings.cursorStyle {
@@ -128,14 +186,42 @@ class ITerm2Service {
     private func launchITerm2WithProfile(_ profileName: String, newWindow: Bool) {
         let script = """
         tell application "iTerm"
-            activate
+            -- Check if iTerm is already running
+            set isRunning to (application "iTerm" is running)
+            
+            -- If not running, just create window without activate
+            if not isRunning then
+                -- Launch iTerm without default window
+                launch
+                -- Wait a moment for iTerm to initialize
+                delay 0.5
+                -- Close any default window that might have opened
+                if (count of windows) > 0 then
+                    close first window
+                end if
+            end if
+            
+            -- Now create our desired window/tab
             if \(newWindow) or (count of windows) = 0 then
                 set newWindow to (create window with profile "\(profileName)")
+                tell newWindow
+                    tell current session
+                        set columns to 200
+                        set rows to 50
+                    end tell
+                end tell
             else
                 tell current window
                     create tab with profile "\(profileName)"
+                    tell current session
+                        set columns to 200
+                        set rows to 50
+                    end tell
                 end tell
             end if
+            
+            -- Activate after creating our window
+            activate
         end tell
         """
         
@@ -153,16 +239,41 @@ class ITerm2Service {
         
         let script = """
         tell application "iTerm"
-            activate
+            -- Check if iTerm is already running
+            set isRunning to (application "iTerm" is running)
+            
+            -- If not running, just create window without activate
+            if not isRunning then
+                -- Launch iTerm without default window
+                launch
+                -- Wait a moment for iTerm to initialize
+                delay 0.5
+                -- Close any default window that might have opened
+                if (count of windows) > 0 then
+                    close first window
+                end if
+            end if
             
             -- Create new window with first profile
             set newWindow to (create window with profile "\(profileNames[0])")
+            tell newWindow
+                tell current session
+                    set columns to 200
+                    set rows to 50
+                end tell
+            end tell
             
             -- Add remaining profiles as tabs
             \(profileNames.dropFirst().map { profileName in
                 """
                 tell newWindow
-                    create tab with profile "\(profileName)"
+                    set newTab to (create tab with profile "\(profileName)")
+                    tell newTab
+                        tell current session
+                            set columns to 200
+                            set rows to 50
+                        end tell
+                    end tell
                 end tell
                 """
             }.joined(separator: "\n            "))
@@ -171,6 +282,9 @@ class ITerm2Service {
             tell newWindow
                 select tab 1
             end tell
+            
+            -- Activate after creating our windows
+            activate
         end tell
         """
         

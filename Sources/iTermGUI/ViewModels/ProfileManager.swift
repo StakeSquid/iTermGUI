@@ -131,11 +131,17 @@ class ProfileManager: ObservableObject {
             groups = ProfileGroup.defaultGroups
         }
         globalDefaults = storage.loadGlobalDefaults()
+        
+        // Sync all profiles to iTerm2
+        iTerm2Service.syncAllProfiles(profiles)
     }
     
     func saveProfiles() {
         storage.saveProfiles(profiles)
         storage.saveGroups(groups)
+        
+        // Sync all profiles to iTerm2
+        iTerm2Service.syncAllProfiles(profiles)
     }
     
     func createNewProfile() {
