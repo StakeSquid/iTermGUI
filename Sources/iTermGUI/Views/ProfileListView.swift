@@ -30,6 +30,12 @@ struct ProfileListView: View {
                                 profileManager.connectToProfiles(Array(profileManager.selectedProfiles), mode: .windows)
                             }
                             Divider()
+                            Button("Toggle Favorite for \(profileManager.selectedProfiles.count) Profiles") {
+                                for selectedProfile in profileManager.selectedProfiles {
+                                    profileManager.toggleFavorite(selectedProfile)
+                                }
+                            }
+                            Divider()
                             Menu("Add \(profileManager.selectedProfiles.count) Profiles to Group") {
                                 ForEach(profileManager.groups.filter { !["All Profiles", "Favorites", "Recent"].contains($0.name) }) { group in
                                     Button(group.name) {

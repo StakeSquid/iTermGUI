@@ -191,7 +191,37 @@ class ProfileManager: ObservableObject {
             createdAt: Date(),
             modifiedAt: Date()
         )
+        
+        // Add the new profile
         profiles.append(newProfile)
+        
+        // Preserve group associations from the original profile
+        // Create a new groups array to trigger @Published update
+        var updatedGroups = groups
+        for index in updatedGroups.indices {
+            if updatedGroups[index].profileIDs.contains(profile.id) && 
+               !["All Profiles", "Favorites", "Recent"].contains(updatedGroups[index].name) {
+                updatedGroups[index].profileIDs.insert(newProfile.id)
+            }
+        }
+        
+        // If we're currently viewing a specific group, add the new profile to it
+        var selectedGroupId: UUID? = nil
+        if let currentGroup = selectedGroup,
+           !["All Profiles", "Favorites", "Recent"].contains(currentGroup.name),
+           let groupIndex = updatedGroups.firstIndex(where: { $0.id == currentGroup.id }) {
+            updatedGroups[groupIndex].profileIDs.insert(newProfile.id)
+            selectedGroupId = currentGroup.id
+        }
+        
+        groups = updatedGroups
+        
+        // Update the selectedGroup to point to the updated version
+        if let groupId = selectedGroupId,
+           let updatedGroup = groups.first(where: { $0.id == groupId }) {
+            selectedGroup = updatedGroup
+        }
+        
         selectedProfile = newProfile
     }
     
