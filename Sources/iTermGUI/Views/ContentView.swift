@@ -54,6 +54,13 @@ struct EmptyStateView: View {
                 }
                 .buttonStyle(.bordered)
                 
+                Button(action: {
+                    profileManager.openSFTPWindow()
+                }) {
+                    Label("SFTP", systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+                
                 if #available(macOS 14.0, *) {
                     SettingsLink {
                         Label("Settings", systemImage: "gearshape")

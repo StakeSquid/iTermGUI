@@ -5,7 +5,10 @@
       "Bash(swift build:*)",
       "Bash(mv:*)",
       "Bash(swift run:*)",
-      "Bash(./Scripts/build_app.sh:*)"
+      "Bash(./Scripts/build_app.sh:*)",
+      "Bash(swift test:*)",
+      "Bash(swiftc:*)",
+      "Bash(./column-test)"
     ],
     "deny": [],
     "ask": [],

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import Combine
 
 enum ConnectionMode: String, CaseIterable {
@@ -40,6 +41,8 @@ class ProfileManager: ObservableObject {
     @Published var sortOption: ProfileSortOption = .name
     @Published var sortAscending: Bool = true
     @Published var globalDefaults: GlobalDefaults = GlobalDefaults.standard
+    @Published var showingSFTPWindow: Bool = false
+    @Published var sftpProfile: SSHProfile? = nil
     
     private let storage = ProfileStorage()
     private let sshConfigParser = SSHConfigParser()
@@ -251,6 +254,52 @@ class ProfileManager: ObservableObject {
             }
         }
         iTerm2Service.openConnections(profiles: profiles, mode: mode)
+    }
+    
+    func openSFTPWindow() {
+        // Open SFTP window without a specific profile
+        let sftpView = SFTPView()
+            .environmentObject(self)
+        
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.title = "SFTP File Transfer"
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: sftpView)
+        window.makeKeyAndOrderFront(nil)
+        
+        // Set minimum and maximum sizes
+        window.minSize = NSSize(width: 900, height: 600)
+        window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    }
+    
+    func openSFTPForProfile(_ profile: SSHProfile) {
+        // Open SFTP in a new window instead of a sheet
+        let sftpView = SFTPView(profile: profile)
+            .environmentObject(self)
+        
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        window.title = "SFTP - \(profile.name)"
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: sftpView)
+        window.makeKeyAndOrderFront(nil)
+        
+        // Set minimum and maximum sizes
+        window.minSize = NSSize(width: 900, height: 600)
+        window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
     }
     
     func connectToSelectedProfiles() {

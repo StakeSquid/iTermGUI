@@ -59,6 +59,9 @@ struct ProfileListView: View {
                             Button("Connect in New Window") {
                                 profileManager.connectToProfile(profile)
                             }
+                            Button("SFTP File Transfer") {
+                                profileManager.openSFTPForProfile(profile)
+                            }
                             Divider()
                             Button("Edit") {
                                 profileManager.selectedProfile = profile

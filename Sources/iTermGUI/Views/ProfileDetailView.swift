@@ -29,6 +29,8 @@ struct ProfileDetailView: View {
                 cancelEditing()
             } onConnect: {
                 profileManager.connectToProfile(profile)
+            } onSFTP: {
+                profileManager.openSFTPForProfile(profile)
             }
             
             TabView(selection: $selectedTab) {
@@ -83,14 +85,23 @@ struct ProfileDetailView: View {
 }
 
 struct HeaderView: View {
+    @EnvironmentObject var profileManager: ProfileManager
     let profile: SSHProfile
     @Binding var isEditing: Bool
     let onSave: () -> Void
     let onCancel: () -> Void
     let onConnect: () -> Void
+    let onSFTP: () -> Void
     
     var body: some View {
         HStack {
+            Button(action: {
+                profileManager.selectedProfile = nil
+            }) {
+                Label("Home", systemImage: "house")
+            }
+            .buttonStyle(.bordered)
+            
             VStack(alignment: .leading, spacing: 4) {
                 Text(profile.name)
                     .font(.title2)
@@ -117,6 +128,9 @@ struct HeaderView: View {
                         window.makeKey()
                         window.makeFirstResponder(window.contentView)
                     }
+                }
+                Button(action: onSFTP) {
+                    Label("SFTP", systemImage: "folder")
                 }
                 Button(action: onConnect) {
                     Label("Connect", systemImage: "play.fill")
