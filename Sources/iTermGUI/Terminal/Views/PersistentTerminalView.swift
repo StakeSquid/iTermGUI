@@ -15,24 +15,33 @@ struct PersistentTerminalView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar for current profile
+            // Tab bar for current profile - always visible
             HStack(spacing: 1) {
-                ForEach(currentProfileSessions) { session in
-                    TerminalTab(
-                        session: session,
-                        isSelected: session.id == selectedSessionId,
-                        isHovered: false,
-                        onSelect: {
-                            selectedSessionId = session.id
-                            sessionManager.setActiveSession(session.id)
-                        },
-                        onClose: {
-                            closeSession(session)
-                        }
-                    )
+                // Show tabs for current profile
+                if !currentProfileSessions.isEmpty {
+                    ForEach(currentProfileSessions) { session in
+                        TerminalTab(
+                            session: session,
+                            isSelected: session.id == selectedSessionId,
+                            isHovered: false,
+                            onSelect: {
+                                selectedSessionId = session.id
+                                sessionManager.setActiveSession(session.id)
+                            },
+                            onClose: {
+                                closeSession(session)
+                            }
+                        )
+                    }
+                } else {
+                    // Show placeholder when no sessions
+                    Text("No active sessions")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
                 }
                 
-                // New tab button
+                // New tab button - always visible
                 Button(action: createNewSession) {
                     Image(systemName: "plus")
                         .font(.system(size: 12))
@@ -59,18 +68,23 @@ struct PersistentTerminalView: View {
                         .allowsHitTesting(session.id == selectedSessionId)
                 }
                 
-                // Empty state
-                if getAllSessions().isEmpty {
+                // Empty state - only show if no sessions for current profile
+                if currentProfileSessions.isEmpty {
                     EmptyTerminalView(onConnect: createNewSession)
                 }
             }
         }
         .onAppear {
-            setupInitialSelection()
+            // Ensure we have a selection when view appears
+            ensureValidSelection()
         }
         .onChange(of: currentProfileId) { _ in
-            // When profile changes, select first session of new profile
-            selectFirstSessionForCurrentProfile()
+            // When profile changes, immediately select appropriate session
+            ensureValidSelection()
+        }
+        .onReceive(sessionManager.$sessions) { _ in
+            // When sessions change, ensure selection is still valid
+            ensureValidSelection()
         }
     }
     
@@ -82,21 +96,21 @@ struct PersistentTerminalView: View {
         return allSessions
     }
     
-    private func setupInitialSelection() {
-        if selectedSessionId == nil {
-            if currentProfileSessions.isEmpty {
-                createNewSession()
-            } else {
-                selectedSessionId = currentProfileSessions.first?.id
-            }
+    private func ensureValidSelection() {
+        // Check if current selection is valid for current profile
+        if let selectedId = selectedSessionId,
+           currentProfileSessions.contains(where: { $0.id == selectedId }) {
+            // Selection is valid for current profile
+            return
         }
-    }
-    
-    private func selectFirstSessionForCurrentProfile() {
+        
+        // Need to select a session for current profile
         if let firstSession = currentProfileSessions.first {
+            // Select first existing session
             selectedSessionId = firstSession.id
             sessionManager.setActiveSession(firstSession.id)
         } else {
+            // No sessions for this profile, create one
             createNewSession()
         }
     }
