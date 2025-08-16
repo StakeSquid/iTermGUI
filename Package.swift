@@ -12,11 +12,15 @@ let package = Package(
             targets: ["iTermGUI"]
         )
     ],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.2.0")
+    ],
     targets: [
         .executableTarget(
             name: "iTermGUI",
-            dependencies: [],
+            dependencies: [
+                .product(name: "SwiftTerm", package: "SwiftTerm")
+            ],
             path: "Sources/iTermGUI"
         ),
         .testTarget(

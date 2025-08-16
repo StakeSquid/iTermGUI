@@ -8,7 +8,10 @@
       "Bash(./Scripts/build_app.sh:*)",
       "Bash(swift test:*)",
       "Bash(swiftc:*)",
-      "Bash(./column-test)"
+      "Bash(./column-test)",
+      "Bash(sed:*)",
+      "Bash(chmod:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": [],

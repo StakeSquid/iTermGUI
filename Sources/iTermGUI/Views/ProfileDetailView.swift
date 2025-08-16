@@ -19,6 +19,7 @@ struct ProfileDetailView: View {
         case advanced = "Advanced"
         case terminal = "Terminal"
         case commands = "Commands"
+        case embeddedTerminal = "Embedded Terminal"
     }
     
     var body: some View {
@@ -53,6 +54,10 @@ struct ProfileDetailView: View {
                 CommandsTabView(profile: $editedProfile, isEditing: isEditing)
                     .tabItem { Label("Commands", systemImage: "command") }
                     .tag(DetailTab.commands)
+                
+                EmbeddedTerminalView(profile: editedProfile)
+                    .tabItem { Label("Embedded Terminal", systemImage: "terminal.fill") }
+                    .tag(DetailTab.embeddedTerminal)
             }
             .padding()
         }

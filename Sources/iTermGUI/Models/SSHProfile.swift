@@ -23,6 +23,7 @@ struct SSHProfile: Identifiable, Codable, Hashable {
     var isFavorite: Bool
     var customCommands: [String]
     var terminalSettings: TerminalSettings
+    var embeddedTerminalSettings: EmbeddedTerminalSettings?
     var lastUsed: Date?
     var createdAt: Date
     var modifiedAt: Date
@@ -49,6 +50,7 @@ struct SSHProfile: Identifiable, Codable, Hashable {
         isFavorite: Bool = false,
         customCommands: [String] = [],
         terminalSettings: TerminalSettings = TerminalSettings(),
+        embeddedTerminalSettings: EmbeddedTerminalSettings? = nil,
         lastUsed: Date? = nil,
         createdAt: Date = Date(),
         modifiedAt: Date = Date()
@@ -74,6 +76,7 @@ struct SSHProfile: Identifiable, Codable, Hashable {
         self.isFavorite = isFavorite
         self.customCommands = customCommands
         self.terminalSettings = terminalSettings
+        self.embeddedTerminalSettings = embeddedTerminalSettings ?? EmbeddedTerminalSettings()
         self.lastUsed = lastUsed
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
