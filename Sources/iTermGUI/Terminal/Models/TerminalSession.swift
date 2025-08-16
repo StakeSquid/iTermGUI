@@ -20,14 +20,14 @@ class TerminalSession: ObservableObject, Identifiable {
     @Published var isActive: Bool = false
     
     var terminal: LocalProcessTerminalView?
-    private var processDelegate: TerminalProcessDelegate?
     
     private var reconnectTimer: Timer?
     private var reconnectAttempts: Int = 0
     private let maxReconnectAttempts: Int = 5
     
     let settings: EmbeddedTerminalSettings
-    private let sshProfile: SSHProfile
+    let sshProfile: SSHProfile
+    var processDelegate: TerminalProcessDelegate?
     
     init(profile: SSHProfile, settings: EmbeddedTerminalSettings) {
         self.profileId = profile.id
@@ -38,14 +38,9 @@ class TerminalSession: ObservableObject, Identifiable {
     }
     
     func connect() {
-        guard state != .connected && state != .connecting else { return }
-        
-        state = .connecting
-        reconnectAttempts = 0
-        
-        DispatchQueue.main.async { [weak self] in
-            self?.establishSSHConnection()
-        }
+        // Connection is now handled by TerminalHostingView
+        // This method is kept for compatibility but does nothing
+        // The actual connection happens in TerminalHostingView.startSSHConnection
     }
     
     func disconnect() {
@@ -77,95 +72,8 @@ class TerminalSession: ObservableObject, Identifiable {
         }
     }
     
-    private func establishSSHConnection() {
-        guard let terminal = terminal else {
-            self.state = .error("Terminal not initialized")
-            return
-        }
-        
-        // Build SSH command
-        var sshArgs: [String] = []
-        
-        // Basic connection
-        sshArgs.append("-o")
-        sshArgs.append("ConnectTimeout=\(sshProfile.connectionTimeout)")
-        sshArgs.append("-o")
-        sshArgs.append("ServerAliveInterval=\(sshProfile.serverAliveInterval)")
-        sshArgs.append("-o")
-        sshArgs.append("StrictHostKeyChecking=\(sshProfile.strictHostKeyChecking ? "yes" : "no")")
-        
-        if sshProfile.compression {
-            sshArgs.append("-C")
-        }
-        
-        // Port
-        if sshProfile.port != 22 {
-            sshArgs.append("-p")
-            sshArgs.append("\(sshProfile.port)")
-        }
-        
-        // Authentication
-        if sshProfile.authMethod == .publicKey, let keyPath = sshProfile.privateKeyPath {
-            sshArgs.append("-i")
-            sshArgs.append(keyPath)
-        }
-        
-        // Jump host
-        if let jumpHost = sshProfile.jumpHost, !jumpHost.isEmpty {
-            sshArgs.append("-J")
-            sshArgs.append(jumpHost)
-        }
-        
-        // Proxy command
-        if let proxyCommand = sshProfile.proxyCommand, !proxyCommand.isEmpty {
-            sshArgs.append("-o")
-            sshArgs.append("ProxyCommand=\(proxyCommand)")
-        }
-        
-        // Port forwarding
-        for forward in sshProfile.localForwards {
-            sshArgs.append("-L")
-            sshArgs.append("\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)")
-        }
-        
-        for forward in sshProfile.remoteForwards {
-            sshArgs.append("-R")
-            sshArgs.append("\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)")
-        }
-        
-        // Connection string
-        let connectionString = sshProfile.username.isEmpty ? sshProfile.host : "\(sshProfile.username)@\(sshProfile.host)"
-        sshArgs.append(connectionString)
-        
-        // Set up environment
-        var environment = ProcessInfo.processInfo.environment
-        environment["TERM"] = settings.terminalType
-        environment["LANG"] = settings.locale
-        environment["LC_ALL"] = settings.locale
-        
-        // Set up termination handler - store delegate to prevent deallocation
-        let delegate = TerminalProcessDelegate(session: self)
-        self.processDelegate = delegate
-        terminal.processDelegate = delegate
-        
-        // Convert environment dictionary to array format
-        let envArray = environment.map { "\($0.key)=\($0.value)" }
-        
-        // Start SSH process using LocalProcessTerminalView
-        terminal.startProcess(
-            executable: "/usr/bin/ssh",
-            args: sshArgs,
-            environment: envArray
-        )
-        self.state = .connected
-        
-        // Run initial commands after a short delay to allow connection
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.runInitialCommands()
-        }
-    }
     
-    private func runInitialCommands() {
+    func runInitialCommands() {
         guard state == .connected else { return }
         
         // Run profile-specific commands

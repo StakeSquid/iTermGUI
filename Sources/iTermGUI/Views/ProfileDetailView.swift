@@ -55,7 +55,7 @@ struct ProfileDetailView: View {
                     .tabItem { Label("Commands", systemImage: "command") }
                     .tag(DetailTab.commands)
                 
-                EmbeddedTerminalView(profile: editedProfile)
+                PersistentTerminalView(currentProfileId: editedProfile.id)
                     .tabItem { Label("Embedded Terminal", systemImage: "terminal.fill") }
                     .tag(DetailTab.embeddedTerminal)
             }

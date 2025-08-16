@@ -26,22 +26,32 @@ struct EmbeddedTerminalView: View {
             
             Divider()
             
-            // Terminal content
-            if let selectedSession = sessions.first(where: { $0.id == selectedSessionId }) {
-                TerminalContentView(session: selectedSession)
-                    .background(GeometryReader { geometry in
-                        Color.clear
-                            .onAppear {
-                                terminalSize = geometry.size
-                                updateTerminalSize(geometry.size)
-                            }
-                            .onChange(of: geometry.size) { newSize in
-                                terminalSize = newSize
-                                updateTerminalSize(newSize)
-                            }
-                    })
-            } else {
-                EmptyTerminalView(onConnect: createNewSession)
+            // Terminal content - keep all sessions alive but only show selected
+            ZStack {
+                if sessions.isEmpty {
+                    EmptyTerminalView(onConnect: createNewSession)
+                } else {
+                    ForEach(sessions) { session in
+                        TerminalContentView(session: session)
+                            .opacity(session.id == selectedSessionId ? 1 : 0)
+                            .allowsHitTesting(session.id == selectedSessionId)
+                            .background(GeometryReader { geometry in
+                                Color.clear
+                                    .onAppear {
+                                        if session.id == selectedSessionId {
+                                            terminalSize = geometry.size
+                                            updateTerminalSize(geometry.size)
+                                        }
+                                    }
+                                    .onChange(of: geometry.size) { newSize in
+                                        if session.id == selectedSessionId {
+                                            terminalSize = newSize
+                                            updateTerminalSize(newSize)
+                                        }
+                                    }
+                            })
+                    }
+                }
             }
         }
         .onAppear {
@@ -248,18 +258,17 @@ struct TerminalTab: View {
 
 struct TerminalContentView: View {
     @ObservedObject var session: TerminalSession
-    @State private var terminalView: LocalProcessTerminalView?
+    let sessionId: UUID
+    
+    init(session: TerminalSession) {
+        self.session = session
+        self.sessionId = session.id
+    }
     
     var body: some View {
         ZStack {
-            if let terminal = terminalView {
-                TerminalViewWrapper(terminal: terminal, session: session)
-                    .background(session.settings.theme.colors.background.color)
-            } else {
-                ProgressView("Initializing terminal...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(NSColor.windowBackgroundColor))
-            }
+            // Create a hosting view for each session's terminal
+            TerminalHostingView(session: session)
             
             // Status overlay for disconnected/error states
             if case .disconnected = session.state {
@@ -268,20 +277,22 @@ struct TerminalContentView: View {
                 ErrorOverlay(message: message, onRetry: { session.connect() })
             }
         }
-        .onAppear {
-            setupTerminal()
-        }
     }
+}
+
+// Separate NSViewRepresentable that manages terminal lifecycle
+struct TerminalHostingView: NSViewRepresentable {
+    let session: TerminalSession
     
-    private func setupTerminal() {
+    func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminal = LocalProcessTerminalView(frame: .zero)
         
         // Configure terminal appearance
-        terminal.font = NSFont(name: session.settings.fontFamily, size: session.settings.fontSize) ?? NSFont.monospacedSystemFont(ofSize: session.settings.fontSize, weight: .regular)
+        terminal.font = NSFont(name: session.settings.fontFamily, size: session.settings.fontSize) 
+            ?? NSFont.monospacedSystemFont(ofSize: session.settings.fontSize, weight: .regular)
         
         // Apply theme colors
         let theme = session.settings.theme.colors
-        // SwiftTerm uses its own Color type, we need to convert
         let swiftTermColors = theme.toSwiftTermNSColors().map { nsColor -> SwiftTerm.Color in
             let r = nsColor.redComponent
             let g = nsColor.greenComponent
@@ -294,31 +305,100 @@ struct TerminalContentView: View {
         terminal.optionAsMetaKey = true
         terminal.allowMouseReporting = session.settings.mouseReporting
         
-        // Store reference
-        self.terminalView = terminal
+        // Store reference in session
         session.terminal = terminal
         
-        // Start the SSH process if not already connected
-        if session.state == .disconnected {
-            session.connect()
+        // Set up termination handler
+        let delegate = TerminalProcessDelegate(session: session)
+        session.processDelegate = delegate
+        terminal.processDelegate = delegate
+        
+        // Start SSH connection (delay to ensure terminal is ready)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if session.state == .disconnected {
+                self.startSSHConnection(terminal: terminal, session: session)
+            }
+        }
+        
+        return terminal
+    }
+    
+    func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {
+        // Terminal is already configured, no updates needed
+    }
+    
+    private func startSSHConnection(terminal: LocalProcessTerminalView, session: TerminalSession) {
+        // Build SSH arguments
+        var sshArgs: [String] = []
+        let profile = session.sshProfile
+        
+        sshArgs.append("-o")
+        sshArgs.append("ConnectTimeout=\(profile.connectionTimeout)")
+        sshArgs.append("-o") 
+        sshArgs.append("ServerAliveInterval=\(profile.serverAliveInterval)")
+        sshArgs.append("-o")
+        sshArgs.append("StrictHostKeyChecking=\(profile.strictHostKeyChecking ? "yes" : "no")")
+        
+        if profile.compression {
+            sshArgs.append("-C")
+        }
+        
+        if profile.port != 22 {
+            sshArgs.append("-p")
+            sshArgs.append("\(profile.port)")
+        }
+        
+        if profile.authMethod == .publicKey, let keyPath = profile.privateKeyPath {
+            sshArgs.append("-i")
+            sshArgs.append(keyPath)
+        }
+        
+        if let jumpHost = profile.jumpHost, !jumpHost.isEmpty {
+            sshArgs.append("-J")
+            sshArgs.append(jumpHost)
+        }
+        
+        if let proxyCommand = profile.proxyCommand, !proxyCommand.isEmpty {
+            sshArgs.append("-o")
+            sshArgs.append("ProxyCommand=\(proxyCommand)")
+        }
+        
+        for forward in profile.localForwards {
+            sshArgs.append("-L")
+            sshArgs.append("\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)")
+        }
+        
+        for forward in profile.remoteForwards {
+            sshArgs.append("-R")
+            sshArgs.append("\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)")
+        }
+        
+        let connectionString = profile.username.isEmpty ? profile.host : "\(profile.username)@\(profile.host)"
+        sshArgs.append(connectionString)
+        
+        // Set up environment
+        var environment = ProcessInfo.processInfo.environment
+        environment["TERM"] = session.settings.terminalType
+        environment["LANG"] = session.settings.locale
+        environment["LC_ALL"] = session.settings.locale
+        let envArray = environment.map { "\($0.key)=\($0.value)" }
+        
+        // Start the process
+        terminal.startProcess(
+            executable: "/usr/bin/ssh",
+            args: sshArgs,
+            environment: envArray
+        )
+        
+        session.state = .connected
+        
+        // Run initial commands after connection
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            session.runInitialCommands()
         }
     }
 }
 
-struct TerminalViewWrapper: NSViewRepresentable {
-    let terminal: LocalProcessTerminalView
-    let session: TerminalSession
-    
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        // The terminal is already configured in setupTerminal()
-        // and SSH connection is handled in session.connect()
-        return terminal
-    }
-    
-    func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
-        // Update terminal if settings changed
-    }
-}
 
 struct EmptyTerminalView: View {
     let onConnect: () -> Void

@@ -14,7 +14,8 @@ struct ContentView: View {
         } detail: {
             if let profile = profileManager.selectedProfile {
                 ProfileDetailView(profile: profile)
-                    .id(profile.id) // Force view refresh when profile ID changes
+                    // Removed .id() to prevent view recreation
+                    // Profile changes are handled internally via onChange
             } else {
                 EmptyStateView()
             }

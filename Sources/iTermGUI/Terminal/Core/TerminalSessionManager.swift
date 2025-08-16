@@ -5,7 +5,7 @@ import Combine
 class TerminalSessionManager: ObservableObject {
     static let shared = TerminalSessionManager()
     
-    @Published private(set) var sessions: [UUID: [TerminalSession]] = [:]
+    @Published var sessions: [UUID: [TerminalSession]] = [:] // Made public for AllTerminalsView
     @Published var activeSessionId: UUID?
     
     private var cancellables = Set<AnyCancellable>()
@@ -26,8 +26,8 @@ class TerminalSessionManager: ObservableObject {
         // Make the new session active
         activeSessionId = session.id
         
-        // Auto-connect
-        session.connect()
+        // Don't auto-connect here - let the terminal view do it after initialization
+        // session.connect() - removed to fix "Terminal not initialized" error
         
         saveSessions()
         
