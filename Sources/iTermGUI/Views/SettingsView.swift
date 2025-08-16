@@ -272,17 +272,25 @@ struct ImportExportSettings: View {
     }
     
     private func importFromFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.text, .json]
-        panel.allowsMultipleSelection = false
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            profileManager.importFromFile(url: url)
+        if importFormat == "JSON" {
+            profileManager.importProfilesFromJSON()
+        } else {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.text]
+            panel.allowsMultipleSelection = false
+            
+            if panel.runModal() == .OK, let url = panel.url {
+                profileManager.importFromFile(url: url)
+            }
         }
     }
     
     private func exportSelected() {
-        // TODO: Implement export selected
+        if exportFormat == "JSON" {
+            profileManager.exportProfilesToJSON()
+        } else {
+            profileManager.exportProfiles()
+        }
     }
 }
 
@@ -309,6 +317,29 @@ struct GlobalDefaultsSettings: View {
                 HStack {
                     Text("Scrollback Lines")
                     TextField("lines", value: $profileManager.globalDefaults.terminalSettings.scrollbackLines, format: .number)
+                        .frame(width: 80)
+                }
+            }
+            
+            Section("Embedded Terminal Settings") {
+                Picker("Default Theme", selection: $profileManager.globalDefaults.embeddedTerminalSettings.theme) {
+                    ForEach(TerminalTheme.allCases, id: \.self) { theme in
+                        Text(theme.rawValue).tag(theme)
+                    }
+                }
+                
+                TextField("Font Family", text: $profileManager.globalDefaults.embeddedTerminalSettings.fontFamily)
+                
+                Stepper("Font Size: \(Int(profileManager.globalDefaults.embeddedTerminalSettings.fontSize)) pt",
+                       value: $profileManager.globalDefaults.embeddedTerminalSettings.fontSize,
+                       in: 9...24)
+                
+                Toggle("Mouse Reporting", isOn: $profileManager.globalDefaults.embeddedTerminalSettings.mouseReporting)
+                Toggle("Auto Reconnect", isOn: $profileManager.globalDefaults.embeddedTerminalSettings.autoReconnect)
+                
+                HStack {
+                    Text("Scrollback Lines")
+                    TextField("", value: $profileManager.globalDefaults.embeddedTerminalSettings.scrollbackLines, format: .number)
                         .frame(width: 80)
                 }
             }

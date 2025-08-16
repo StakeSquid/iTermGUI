@@ -19,14 +19,14 @@ class TerminalSession: ObservableObject, Identifiable {
     @Published var title: String
     @Published var isActive: Bool = false
     
-    var terminal: LocalProcessTerminalView?
+    var terminal: CustomTerminalView?
     
     private var reconnectTimer: Timer?
     private var reconnectAttempts: Int = 0
     private let maxReconnectAttempts: Int = 5
     
     let settings: EmbeddedTerminalSettings
-    let sshProfile: SSHProfile
+    @Published var sshProfile: SSHProfile
     var processDelegate: TerminalProcessDelegate?
     
     init(profile: SSHProfile, settings: EmbeddedTerminalSettings) {
@@ -35,6 +35,12 @@ class TerminalSession: ObservableObject, Identifiable {
         self.title = profile.name
         self.sshProfile = profile
         self.settings = settings
+    }
+    
+    func updateProfile(_ newProfile: SSHProfile) {
+        self.sshProfile = newProfile
+        // Trigger a UI update
+        objectWillChange.send()
     }
     
     func connect() {

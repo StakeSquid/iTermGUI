@@ -157,7 +157,8 @@ class ProfileManager: ObservableObject {
             connectionTimeout: globalDefaults.connectionTimeout,
             serverAliveInterval: globalDefaults.serverAliveInterval,
             customCommands: globalDefaults.customCommands,
-            terminalSettings: globalDefaults.terminalSettings
+            terminalSettings: globalDefaults.terminalSettings,
+            embeddedTerminalSettings: globalDefaults.embeddedTerminalSettings
         )
         profiles.append(newProfile)
         selectedProfile = newProfile
@@ -196,6 +197,7 @@ class ProfileManager: ObservableObject {
             isFavorite: profile.isFavorite,
             customCommands: profile.customCommands,
             terminalSettings: profile.terminalSettings,
+            embeddedTerminalSettings: profile.embeddedTerminalSettings,
             lastUsed: nil,
             createdAt: Date(),
             modifiedAt: Date()
@@ -363,6 +365,47 @@ class ProfileManager: ObservableObject {
         }
     }
     
+    func exportProfilesToJSON() {
+        isExporting = true
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "profiles.json"
+        panel.message = "Export SSH profiles to JSON file"
+        
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    try self.storage.exportProfiles(to: url, profiles: self.profiles)
+                } catch {
+                    print("Error exporting profiles to JSON: \(error)")
+                }
+            }
+            self.isExporting = false
+        }
+    }
+    
+    func importProfilesFromJSON() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.message = "Select JSON file with profiles to import"
+        
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                do {
+                    let importedProfiles = try self.storage.importProfiles(from: url)
+                    for profile in importedProfiles {
+                        if !self.profiles.contains(where: { $0.id == profile.id }) {
+                            self.profiles.append(profile)
+                        }
+                    }
+                } catch {
+                    print("Error importing profiles from JSON: \(error)")
+                }
+            }
+        }
+    }
+    
     private func exportToFile(url: URL) {
         let configContent = profiles.map { $0.toSSHConfigEntry() }.joined(separator: "\n\n")
         do {
@@ -394,6 +437,7 @@ class ProfileManager: ObservableObject {
     func saveCurrentProfileAsDefaults(_ profile: SSHProfile) {
         globalDefaults = GlobalDefaults(
             terminalSettings: profile.terminalSettings,
+            embeddedTerminalSettings: profile.embeddedTerminalSettings ?? EmbeddedTerminalSettings(),
             customCommands: profile.customCommands,
             connectionTimeout: profile.connectionTimeout,
             serverAliveInterval: profile.serverAliveInterval,

@@ -94,6 +94,10 @@ struct SSHProfile: Identifiable, Codable, Hashable {
         return conn
     }
     
+    var effectiveEmbeddedTerminalSettings: EmbeddedTerminalSettings {
+        return embeddedTerminalSettings ?? EmbeddedTerminalSettings()
+    }
+    
     func toSSHConfigEntry() -> String {
         var config = "Host \(name)\n"
         config += "    HostName \(host)\n"

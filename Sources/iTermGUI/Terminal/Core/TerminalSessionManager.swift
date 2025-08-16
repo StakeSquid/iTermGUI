@@ -81,6 +81,15 @@ class TerminalSessionManager: ObservableObject {
         }
     }
     
+    func updateProfile(for profileId: UUID, newProfile: SSHProfile) {
+        // Update the profile reference in all sessions for this profile
+        if let profileSessions = sessions[profileId] {
+            for session in profileSessions {
+                session.updateProfile(newProfile)
+            }
+        }
+    }
+    
     func reconnectAll() {
         for profileSessions in sessions.values {
             for session in profileSessions {

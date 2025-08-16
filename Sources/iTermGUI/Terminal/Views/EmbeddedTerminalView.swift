@@ -74,7 +74,7 @@ struct EmbeddedTerminalView: View {
     }
     
     private func createNewSession() {
-        let settings = profile.embeddedTerminalSettings ?? EmbeddedTerminalSettings()
+        let settings = profile.effectiveEmbeddedTerminalSettings
         let session = sessionManager.createSession(for: profile, settings: settings)
         sessions = sessionManager.getActiveSessions(for: profile.id)
         selectedSessionId = session.id
@@ -284,15 +284,24 @@ struct TerminalContentView: View {
 struct TerminalHostingView: NSViewRepresentable {
     let session: TerminalSession
     
-    func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminal = LocalProcessTerminalView(frame: .zero)
+    func makeNSView(context: Context) -> CustomTerminalView {
+        let terminal = CustomTerminalView(frame: .zero)
+        
+        // Get the actual embedded terminal settings
+        let embeddedSettings = session.sshProfile.effectiveEmbeddedTerminalSettings
         
         // Configure terminal appearance
-        terminal.font = NSFont(name: session.settings.fontFamily, size: session.settings.fontSize) 
-            ?? NSFont.monospacedSystemFont(ofSize: session.settings.fontSize, weight: .regular)
+        terminal.font = NSFont(name: embeddedSettings.fontFamily, size: embeddedSettings.fontSize) 
+            ?? NSFont.monospacedSystemFont(ofSize: embeddedSettings.fontSize, weight: .regular)
         
         // Apply theme colors
-        let theme = session.settings.theme.colors
+        let theme = embeddedSettings.theme.colors
+        
+        // Set background and foreground colors
+        terminal.nativeBackgroundColor = theme.background.nsColor
+        terminal.nativeForegroundColor = theme.foreground.nsColor
+        
+        // Install the 16 ANSI colors
         let swiftTermColors = theme.toSwiftTermNSColors().map { nsColor -> SwiftTerm.Color in
             let r = nsColor.redComponent
             let g = nsColor.greenComponent
@@ -303,7 +312,12 @@ struct TerminalHostingView: NSViewRepresentable {
         
         // Set up terminal options
         terminal.optionAsMetaKey = true
-        terminal.allowMouseReporting = session.settings.mouseReporting
+        terminal.allowMouseReporting = embeddedSettings.mouseReporting
+        terminal.copyOnSelect = embeddedSettings.copyOnSelect
+        terminal.pasteOnRightClick = embeddedSettings.pasteOnRightClick
+        
+        // Note: Cursor style, scrollback, bell, etc. are handled internally by SwiftTerm
+        // Some settings may not be directly configurable through the public API
         
         // Store reference in session
         session.terminal = terminal
@@ -323,8 +337,37 @@ struct TerminalHostingView: NSViewRepresentable {
         return terminal
     }
     
-    func updateNSView(_ terminal: LocalProcessTerminalView, context: Context) {
-        // Terminal is already configured, no updates needed
+    func updateNSView(_ terminal: CustomTerminalView, context: Context) {
+        // Update terminal settings if they changed
+        let embeddedSettings = session.sshProfile.effectiveEmbeddedTerminalSettings
+        
+        // Update font
+        terminal.font = NSFont(name: embeddedSettings.fontFamily, size: embeddedSettings.fontSize) 
+            ?? NSFont.monospacedSystemFont(ofSize: embeddedSettings.fontSize, weight: .regular)
+        
+        // Update theme colors
+        let theme = embeddedSettings.theme.colors
+        
+        // Set background and foreground colors
+        terminal.nativeBackgroundColor = theme.background.nsColor
+        terminal.nativeForegroundColor = theme.foreground.nsColor
+        
+        // Install the 16 ANSI colors
+        let swiftTermColors = theme.toSwiftTermNSColors().map { nsColor -> SwiftTerm.Color in
+            let r = nsColor.redComponent
+            let g = nsColor.greenComponent
+            let b = nsColor.blueComponent
+            return SwiftTerm.Color(red: UInt16(r * 65535), green: UInt16(g * 65535), blue: UInt16(b * 65535))
+        }
+        terminal.installColors(swiftTermColors)
+        
+        // Update other settings
+        terminal.allowMouseReporting = embeddedSettings.mouseReporting
+        terminal.copyOnSelect = embeddedSettings.copyOnSelect
+        terminal.pasteOnRightClick = embeddedSettings.pasteOnRightClick
+        
+        // Force a redraw
+        terminal.needsDisplay = true
     }
     
     private func startSSHConnection(terminal: LocalProcessTerminalView, session: TerminalSession) {
@@ -376,11 +419,14 @@ struct TerminalHostingView: NSViewRepresentable {
         let connectionString = profile.username.isEmpty ? profile.host : "\(profile.username)@\(profile.host)"
         sshArgs.append(connectionString)
         
+        // Get embedded settings
+        let embeddedSettings = session.sshProfile.effectiveEmbeddedTerminalSettings
+        
         // Set up environment
         var environment = ProcessInfo.processInfo.environment
-        environment["TERM"] = session.settings.terminalType
-        environment["LANG"] = session.settings.locale
-        environment["LC_ALL"] = session.settings.locale
+        environment["TERM"] = embeddedSettings.terminalType
+        environment["LANG"] = embeddedSettings.locale
+        environment["LC_ALL"] = embeddedSettings.locale
         let envArray = environment.map { "\($0.key)=\($0.value)" }
         
         // Start the process
@@ -394,7 +440,15 @@ struct TerminalHostingView: NSViewRepresentable {
         
         // Run initial commands after connection
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            session.runInitialCommands()
+            // Run profile commands
+            for command in session.sshProfile.customCommands {
+                terminal.send(txt: command + "\n")
+            }
+            
+            // Run embedded terminal settings commands
+            for command in embeddedSettings.onConnectCommands {
+                terminal.send(txt: command + "\n")
+            }
         }
     }
 }

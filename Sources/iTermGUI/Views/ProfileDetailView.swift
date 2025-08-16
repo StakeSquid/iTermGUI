@@ -19,6 +19,7 @@ struct ProfileDetailView: View {
         case advanced = "Advanced"
         case terminal = "Terminal"
         case commands = "Commands"
+        case embeddedTerminalSettings = "Terminal Settings"
         case embeddedTerminal = "Embedded Terminal"
     }
     
@@ -55,6 +56,10 @@ struct ProfileDetailView: View {
                     .tabItem { Label("Commands", systemImage: "command") }
                     .tag(DetailTab.commands)
                 
+                EmbeddedTerminalSettingsView(profile: $editedProfile, isEditing: isEditing)
+                    .tabItem { Label("Terminal Settings", systemImage: "gearshape") }
+                    .tag(DetailTab.embeddedTerminalSettings)
+                
                 PersistentTerminalView(currentProfileId: editedProfile.id)
                     .tabItem { Label("Embedded Terminal", systemImage: "terminal.fill") }
                     .tag(DetailTab.embeddedTerminal)
@@ -79,6 +84,9 @@ struct ProfileDetailView: View {
             updatedProfile.modifiedAt = Date()
             profileManager.profiles[index] = updatedProfile
             profileManager.selectedProfile = updatedProfile
+            
+            // Update the profile in existing terminal sessions
+            TerminalSessionManager.shared.updateProfile(for: updatedProfile.id, newProfile: updatedProfile)
         }
         isEditing = false
     }

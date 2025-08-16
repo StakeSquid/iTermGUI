@@ -11,7 +11,10 @@
       "Bash(./column-test)",
       "Bash(sed:*)",
       "Bash(chmod:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(./test_theme_update.swift)",
+      "Bash(./test_settings_persistence.swift)",
+      "Bash(./test_settings_load.swift)"
     ],
     "deny": [],
     "ask": [],

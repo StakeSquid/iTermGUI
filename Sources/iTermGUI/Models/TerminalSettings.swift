@@ -18,6 +18,7 @@ struct EmbeddedTerminalSettings: Codable, Hashable {
     var altScreenMouseScroll: Bool = true
     var copyOnSelect: Bool = false
     var pasteOnMiddleClick: Bool = true
+    var pasteOnRightClick: Bool = true
     var bellStyle: BellStyle = .visual
     
     // Connection Settings
