@@ -376,6 +376,51 @@ class ITerm2Service {
         return schemes[name]
     }
     
+    func openLocalhost() {
+        let script = """
+        tell application "iTerm"
+            -- Check if iTerm is already running
+            set isRunning to (application "iTerm" is running)
+            
+            -- If not running, launch iTerm
+            if not isRunning then
+                launch
+                delay 0.5
+            end if
+            
+            -- Create new window or tab for localhost
+            if (count of windows) = 0 then
+                set newWindow to (create window with default profile)
+                tell newWindow
+                    tell current session
+                        set name to "Localhost"
+                    end tell
+                end tell
+            else
+                tell current window
+                    set newTab to (create tab with default profile)
+                    tell newTab
+                        tell current session
+                            set name to "Localhost"
+                        end tell
+                    end tell
+                end tell
+            end if
+            
+            -- Activate iTerm
+            activate
+        end tell
+        """
+        
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+            if let error = error {
+                print("AppleScript error: \(error)")
+            }
+        }
+    }
+    
     func testConnection(profile: SSHProfile, completion: @escaping (Bool, String?) -> Void) {
         let task = Process()
         task.launchPath = "/usr/bin/ssh"

@@ -107,51 +107,69 @@ struct HeaderView: View {
     let onSFTP: () -> Void
     
     var body: some View {
-        HStack {
-            Button(action: {
-                profileManager.selectedProfile = nil
-            }) {
-                Label("Home", systemImage: "house")
+        VStack(spacing: 12) {
+            // New row for Home and Localhost Console buttons
+            HStack {
+                Button(action: {
+                    profileManager.selectedProfile = nil
+                }) {
+                    Label("Home", systemImage: "house")
+                }
+                .buttonStyle(.bordered)
+                
+                Button(action: {
+                    ITerm2Service().openLocalhost()
+                }) {
+                    Label("Localhost Console", systemImage: "terminal")
+                }
+                .buttonStyle(.bordered)
+                
+                Spacer()
             }
-            .buttonStyle(.bordered)
+            .padding(.horizontal)
+            .padding(.top, 8)
             
-            VStack(alignment: .leading, spacing: 4) {
-                Text(profile.name)
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                Text(profile.connectionString)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            if isEditing {
-                Button("Cancel", action: onCancel)
-                    .keyboardShortcut(.escape)
-                Button("Save", action: onSave)
-                    .keyboardShortcut(.return)
-                    .buttonStyle(.borderedProminent)
-            } else {
-                Button("Edit") {
-                    isEditing = true
-                    // Ensure window is key for text input
-                    NSApp.activate(ignoringOtherApps: true)
-                    if let window = NSApp.keyWindow {
-                        window.makeKey()
-                        window.makeFirstResponder(window.contentView)
+            // Profile info and action buttons row
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profile.name)
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                    Text(profile.connectionString)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                if isEditing {
+                    Button("Cancel", action: onCancel)
+                        .keyboardShortcut(.escape)
+                    Button("Save", action: onSave)
+                        .keyboardShortcut(.return)
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Edit") {
+                        isEditing = true
+                        // Ensure window is key for text input
+                        NSApp.activate(ignoringOtherApps: true)
+                        if let window = NSApp.keyWindow {
+                            window.makeKey()
+                            window.makeFirstResponder(window.contentView)
+                        }
                     }
+                    Button(action: onSFTP) {
+                        Label("SFTP", systemImage: "folder")
+                    }
+                    Button(action: onConnect) {
+                        Label("Connect", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
-                Button(action: onSFTP) {
-                    Label("SFTP", systemImage: "folder")
-                }
-                Button(action: onConnect) {
-                    Label("Connect", systemImage: "play.fill")
-                }
-                .buttonStyle(.borderedProminent)
             }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
         }
-        .padding()
         .background(Color(NSColor.controlBackgroundColor))
     }
 }

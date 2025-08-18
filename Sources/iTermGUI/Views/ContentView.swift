@@ -49,6 +49,13 @@ struct EmptyStateView: View {
                 .buttonStyle(.borderedProminent)
                 
                 Button(action: {
+                    ITerm2Service().openLocalhost()
+                }) {
+                    Label("Localhost Console", systemImage: "terminal")
+                }
+                .buttonStyle(.bordered)
+                
+                Button(action: {
                     profileManager.importFromSSHConfig()
                 }) {
                     Label("Import SSH Config", systemImage: "square.and.arrow.down")

@@ -10,8 +10,15 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $profileManager.selectedGroup) {
             Section("Groups") {
-                ForEach(profileManager.groups) { group in
+                ForEach(profileManager.groups.sorted(by: { $0.sortOrder < $1.sortOrder })) { group in
                     HStack {
+                        // Add drag handle for non-system groups
+                        if !["All Profiles", "Favorites", "Recent"].contains(group.name) {
+                            Image(systemName: "line.3.horizontal")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                        
                         Image(systemName: group.icon)
                             .foregroundColor(Color(group.color))
                         Text(group.name)
@@ -37,6 +44,9 @@ struct SidebarView: View {
                             }
                         }
                     }
+                }
+                .onMove { source, destination in
+                    moveGroups(from: source, to: destination)
                 }
             }
         }
@@ -116,6 +126,51 @@ struct SidebarView: View {
             }
             .padding()
             .frame(width: 300, height: 150)
+        }
+    }
+    
+    private func moveGroups(from source: IndexSet, to destination: Int) {
+        // Get sorted groups
+        let sortedGroups = profileManager.groups.sorted(by: { $0.sortOrder < $1.sortOrder })
+        
+        // Separate system groups and custom groups
+        let systemGroupNames = ["All Profiles", "Favorites", "Recent"]
+        let systemGroups = sortedGroups.filter { systemGroupNames.contains($0.name) }
+        var customGroups = sortedGroups.filter { !systemGroupNames.contains($0.name) }
+        
+        // Calculate the actual indices in customGroups array
+        var actualSource = IndexSet()
+        for index in source {
+            // Adjust index by subtracting system groups count
+            let adjustedIndex = index - systemGroups.count
+            if adjustedIndex >= 0 && adjustedIndex < customGroups.count {
+                actualSource.insert(adjustedIndex)
+            }
+        }
+        
+        // Calculate actual destination
+        let actualDestination = max(0, destination - systemGroups.count)
+        
+        // Only move if we're dealing with custom groups
+        if !actualSource.isEmpty {
+            // Perform the move on custom groups
+            customGroups.move(fromOffsets: actualSource, toOffset: actualDestination)
+            
+            // Update sort orders for all groups
+            for (index, group) in systemGroups.enumerated() {
+                if let groupIndex = profileManager.groups.firstIndex(where: { $0.id == group.id }) {
+                    profileManager.groups[groupIndex].sortOrder = index
+                }
+            }
+            
+            for (index, group) in customGroups.enumerated() {
+                if let groupIndex = profileManager.groups.firstIndex(where: { $0.id == group.id }) {
+                    profileManager.groups[groupIndex].sortOrder = systemGroups.count + index
+                }
+            }
+            
+            // Save changes
+            profileManager.saveProfiles()
         }
     }
 }

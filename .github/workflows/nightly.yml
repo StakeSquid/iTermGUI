@@ -1,0 +1,54 @@
+name: Nightly Build
+
+on:
+  schedule:
+    # Run at 2 AM UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Xcode
+      uses: maxim-lobanov/setup-xcode@v1
+      with:
+        xcode-version: latest-stable
+    
+    - name: Build application
+      run: |
+        ./Scripts/build_app.sh
+        
+    - name: Create nightly DMG
+      run: |
+        # Install create-dmg if needed
+        brew install create-dmg || true
+        
+        # Get current date
+        DATE=$(date +%Y%m%d)
+        
+        # Create DMG
+        create-dmg \
+          --volname "iTermGUI Nightly" \
+          --volicon "Resources/AppIcon.icns" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --icon "iTermGUI.app" 150 180 \
+          --hide-extension "iTermGUI.app" \
+          --app-drop-link 450 180 \
+          --no-internet-enable \
+          "iTermGUI-nightly-${DATE}.dmg" \
+          "Build/"
+    
+    - name: Upload nightly build
+      uses: actions/upload-artifact@v3
+      with:
+        name: iTermGUI-nightly-${{ github.run_number }}
+        path: |
+          Build/iTermGUI.app
+          iTermGUI-nightly-*.dmg
+        retention-days: 7
