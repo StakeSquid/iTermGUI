@@ -46,7 +46,7 @@ jobs:
           "Build/"
     
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: iTermGUI-${{ github.sha }}
         path: Build/iTermGUI.app

@@ -45,7 +45,7 @@ jobs:
           "Build/"
     
     - name: Upload nightly build
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: iTermGUI-nightly-${{ github.run_number }}
         path: |
