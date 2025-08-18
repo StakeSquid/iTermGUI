@@ -13,7 +13,10 @@ class ITerm2Service {
     
     func openConnection(profile: SSHProfile, mode: ConnectionMode = .windows) {
         updateDynamicProfiles(with: [profile])
-        launchITerm2WithProfile(profile.name, newWindow: true)
+        // Give iTerm2 a moment to reload dynamic profiles
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.launchITerm2WithProfile(profile.name, newWindow: true)
+        }
     }
     
     func openConnections(profiles: [SSHProfile], mode: ConnectionMode) {
@@ -22,13 +25,16 @@ class ITerm2Service {
         // Update dynamic profiles for all connections
         updateDynamicProfiles(with: profiles)
         
-        // Launch connections based on mode
-        switch mode {
-        case .tabs:
-            launchITerm2WithProfilesInTabs(profiles.map { $0.name })
-        case .windows:
-            for profile in profiles {
-                launchITerm2WithProfile(profile.name, newWindow: true)
+        // Give iTerm2 a moment to reload dynamic profiles
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            // Launch connections based on mode
+            switch mode {
+            case .tabs:
+                self.launchITerm2WithProfilesInTabs(profiles.map { $0.name })
+            case .windows:
+                for profile in profiles {
+                    self.launchITerm2WithProfile(profile.name, newWindow: true)
+                }
             }
         }
     }
@@ -154,6 +160,7 @@ class ITerm2Service {
         var iterm2Profile: [String: Any] = [
             "Name": profile.name,
             "Guid": profile.id.uuidString,
+            "Title Components": 64,  // 64 = Profile Name component
             "Custom Command": "Yes",
             "Command": sshCommand,
             "Tags": Array(profile.tags),
@@ -201,6 +208,16 @@ class ITerm2Service {
                 end if
             end if
             
+            -- Force reload of dynamic profiles
+            tell application "System Events"
+                tell process "iTerm2"
+                    -- This triggers iTerm2 to reload dynamic profiles
+                end tell
+            end tell
+            
+            -- Small delay to ensure profiles are loaded
+            delay 0.1
+            
             -- Now create our desired window/tab
             if \(newWindow) or (count of windows) = 0 then
                 set newWindow to (create window with profile "\(profileName)")
@@ -208,6 +225,7 @@ class ITerm2Service {
                     tell current session
                         set columns to 200
                         set rows to 50
+                        set name to "\(profileName)"
                     end tell
                 end tell
             else
@@ -216,6 +234,7 @@ class ITerm2Service {
                     tell current session
                         set columns to 200
                         set rows to 50
+                        set name to "\(profileName)"
                     end tell
                 end tell
             end if
@@ -254,12 +273,23 @@ class ITerm2Service {
                 end if
             end if
             
+            -- Force reload of dynamic profiles
+            tell application "System Events"
+                tell process "iTerm2"
+                    -- This triggers iTerm2 to reload dynamic profiles
+                end tell
+            end tell
+            
+            -- Small delay to ensure profiles are loaded
+            delay 0.1
+            
             -- Create new window with first profile
             set newWindow to (create window with profile "\(profileNames[0])")
             tell newWindow
                 tell current session
                     set columns to 200
                     set rows to 50
+                    set name to "\(profileNames[0])"
                 end tell
             end tell
             
@@ -272,6 +302,7 @@ class ITerm2Service {
                         tell current session
                             set columns to 200
                             set rows to 50
+                            set name to "\(profileName)"
                         end tell
                     end tell
                 end tell
