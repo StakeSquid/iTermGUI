@@ -1,217 +1,124 @@
 # iTermGUI
 
-A native macOS application for managing SSH profiles with seamless iTerm2 integration.
+A native macOS app for managing SSH profiles and launching them in iTerm2 — with an embedded terminal and SFTP file transfer for when you don't need iTerm2 at all.
 
-<img width="1670" height="824" alt="Screenshot 2025-08-15 at 7 24 45 PM" src="https://github.com/user-attachments/assets/7a9c3caf-1236-4605-a69b-1aafd968ad9d" />
+[![Latest release](https://img.shields.io/github/v/release/StakeSquid/iTermGUI?display_name=tag&sort=semver)](https://github.com/StakeSquid/iTermGUI/releases/latest)
+[![macOS](https://img.shields.io/badge/macOS-13.0%2B-blue)](#requirements)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-<img width="1312" height="712" alt="Screenshot 2025-08-15 at 7 24 19 PM" src="https://github.com/user-attachments/assets/a924181f-07ed-4e86-bb48-9672a82e4da4" />
+## Highlights
 
-## Features
+- **SSH profile manager** — host, port, user, jump host, proxy command, identity file, port forwarding, custom startup commands, tags, and per-profile terminal settings.
+- **iTerm2 integration** — opens connections in iTerm2 tabs or separate windows, syncing each profile to iTerm2's Dynamic Profiles directory.
+- **Embedded terminal** — built-in SwiftTerm session per profile with seven themes (Dark, Light, Solarized Dark/Light, Dracula, Nord, One Dark) when you don't want to leave the app.
+- **SFTP file transfer** — dual-pane browser, server-to-server transfers via SSH tunneling, recursive directory transfers, queued progress.
+- **Organization** — Smart groups (All / Favorites / Recent), custom drag-to-reorder groups, tags, and search across name / host / username / tags.
+- **Quick Connect** — menu bar dropdown for launching favorites or recent profiles in one click.
+- **Secure** — passwords stored in the macOS Keychain; everything else lives in plain JSON you can back up or version-control.
 
-### SSH Profile Management
-- Create, edit, and organize SSH profiles with full configuration options
-- Organize profiles into customizable, draggable groups
-- Real-time search and filtering across all profiles
-- Batch operations for connecting to multiple servers simultaneously
-- Import from `~/.ssh/config` and export profiles for backup
-- Favorites system for quick access to frequently used connections
+## Requirements
 
-### iTerm2 Integration
-- Open SSH sessions directly in iTerm2
-- Multiple connection modes: tabs, windows, or split panes
-- Automatic profile syncing with iTerm2's dynamic profiles
-- Custom startup commands and login scripts
-- Terminal customization (fonts, colors, cursor styles)
-- Quick localhost console access from the home screen
+- macOS 13 (Ventura) or later
+- [iTerm2](https://iterm2.com) for external terminal sessions (the embedded terminal works without it)
 
-### SFTP File Transfer
-- Dual-pane file browser interface
-- Transfer files between local and remote systems
-- Server-to-server transfers via SSH tunneling
-- Directory transfer support with structure preservation
-- Transfer queue with detailed error reporting
-- Context menu actions for file operations
+## Install
 
-### Advanced Features
-- SSH key management with multiple identity files
-- Jump host support for complex network topologies
-- Port forwarding configuration (local and remote)
-- Global default settings for all profiles
-- Secure password storage in macOS Keychain
-- Embedded terminal view within the application
+### Pre-built app
 
-## System Requirements
+1. Download `iTermGUI-vX.Y.Z.zip` from the [latest release](https://github.com/StakeSquid/iTermGUI/releases/latest).
+2. Unzip and drag **iTermGUI.app** to **/Applications**.
+3. First launch: right-click the app → **Open** to bypass Gatekeeper (the app is ad-hoc signed).
 
-- macOS 13.0 (Ventura) or later
-- iTerm2 (latest version recommended)
-- Xcode Command Line Tools (for building from source)
-
-## Installation
-
-### Download Release
-
-Download the latest release from the [releases page](https://github.com/StakeSquid/iTermGUI/releases).
-
-### Build from Source
+### Build from source
 
 ```bash
-# Clone the repository
 git clone https://github.com/StakeSquid/iTermGUI.git
 cd iTermGUI
-
-# Build the application
-./Scripts/build_app.sh
-
-# The app will be created at Build/iTermGUI.app
-# Drag it to your Applications folder
+./Scripts/build_app.sh        # produces Build/iTermGUI.app
+./Scripts/create_dmg.sh       # optional: package as a .dmg
 ```
 
-### Using Swift Package Manager
+Or run directly via Swift Package Manager:
 
 ```bash
-# Build using Swift Package Manager
-swift build --configuration release
-
-# Or open in Xcode
-open Package.swift
+swift run                     # debug
+swift build -c release        # release binary at .build/release/iTermGUI
 ```
 
-## Usage
+## Quick start
 
-### Getting Started
-1. Launch iTermGUI from Applications
-2. Import existing profiles from `~/.ssh/config` via File → Import
-3. Create new profiles with the "New Profile" button or ⌘+N
-4. Double-click any profile to connect
+1. Launch iTermGUI.
+2. Either click **Import** on the welcome screen to read existing entries from `~/.ssh/config`, or **New Profile** (`⌘N`) to create one.
+3. Double-click a profile (or hit `↩` on the selection) to open it in iTerm2.
 
-### Profile Management
-- **Create**: ⌘+N or click "+" button
-- **Edit**: Select profile and click "Edit"
-- **Delete**: Right-click → Delete or press Delete key
-- **Group**: Drag groups in the sidebar to reorder them
-- **Favorites**: Mark frequently used profiles as favorites
+Multi-select profiles and pick **Connect → Tabs / Separate Windows** from the toolbar to launch many at once.
 
-### SFTP File Transfer
-1. Click "SFTP" from the home screen or profile view
-2. Navigate using the dual-pane interface
-3. Transfer files using the arrow buttons or right-click menu
-4. Monitor transfers in the queue at the bottom
+## Keyboard shortcuts
 
-### Keyboard Shortcuts
-- `⌘+N` - New Profile
-- `⌘+K` - Quick Connect
-- `⌘+F` - Focus Search
-- `⌘+,` - Preferences
-- `⌘+Delete` - Delete Selected Profiles
-- `Return` - Connect to Selected Profile
-- `⌘+Click` - Multi-select Profiles
-- `ESC` - Close SFTP Window
+| Shortcut | Action |
+|----------|--------|
+| `⌘N` | New profile |
+| `⌘⇧I` | Import from `~/.ssh/config` |
+| `⌘⇧E` | Export profiles |
+| `⌘↩` | Connect to selected profile |
+| `⌘,` | Settings |
+| `↩` | Connect to selection / submit form |
+| `Esc` | Cancel popover or sheet |
+| `Delete` | Remove selected profile(s) |
 
-## Configuration
+## Where things live
 
-### SSH Options
-- Host (hostname or IP address)
-- Port (default: 22)
-- Username
-- Authentication method (password, SSH key, keyboard-interactive)
-- Identity file path
-- Jump host configuration
-- Port forwarding rules
+| Path | Contents |
+|------|----------|
+| `~/Documents/iTermGUI/profiles.json` | All SSH profiles |
+| `~/Documents/iTermGUI/groups.json` | Custom groups and ordering |
+| `~/Documents/iTermGUI/defaults.json` | Global default settings applied to new profiles |
+| `~/Library/Application Support/iTerm2/DynamicProfiles/` | iTerm2-side profile mirror managed by the app |
+| macOS Keychain | Profile passwords (entry per profile) |
 
-### Terminal Settings
-- Color schemes
-- Font family and size
-- Cursor style
-- Window dimensions
-- Startup commands
+## Project layout
 
-### Data Storage
-Configuration files are stored in `~/Documents/iTermGUI/`:
-- `profiles.json` - SSH profiles
-- `groups.json` - Group organization
-- `settings.json` - Application preferences
-- `defaults.json` - Global default settings
+```
+Sources/iTermGUI/
+├── App/                Application entry point and AppDelegate
+├── Extensions/         Shared SwiftUI helpers (ProfileAvatar, glass effects)
+├── Models/             SSHProfile, ProfileGroup, GlobalDefaults, terminal settings
+├── Services/           ITerm2Service, SFTPService, ProfileStorage, SSHConfigParser
+│   └── Runners/        AppleScript / Process / Keychain / file-store protocols
+├── Terminal/           SwiftTerm-based embedded session (Models, Views, Core)
+├── ViewModels/         ProfileManager (the app's central @ObservableObject)
+└── Views/              SwiftUI views (sidebar, list, detail, settings, SFTP, quick connect)
 
-Passwords are securely stored in the macOS Keychain.
-
-## Troubleshooting
-
-### Common Issues
-
-**"iTermGUI can't be opened because it is from an unidentified developer"**
-- Right-click the app and select "Open"
-- Or go to System Settings → Privacy & Security → "Open Anyway"
-
-**SSH connection fails**
-- Verify credentials and network connectivity
-- Check SSH key permissions (should be 600)
-- Ensure jump host configuration is correct
-
-**SFTP transfer fails**
-- Check error details in the transfer queue
-- Verify file paths and permissions
-- Ensure sufficient disk space
-
-**Profiles not syncing with iTerm2**
-- Ensure iTerm2 is running
-- Check `~/Library/Application Support/iTerm2/DynamicProfiles/`
-- Restart iTerm2 if needed
-
-### Debug Mode
-Run from terminal to see debug output:
-```bash
-/Applications/iTermGUI.app/Contents/MacOS/iTermGUI
+Tests/iTermGUITests/    379 tests across Models / ViewModels / Services / Terminal / Views
 ```
 
 ## Development
 
-### Project Structure
-```
-iTermGUI/
-├── Sources/iTermGUI/
-│   ├── App/          # Application entry point
-│   ├── Models/       # Data models
-│   ├── Services/     # iTerm2 and SFTP services
-│   ├── ViewModels/   # Profile manager
-│   ├── Views/        # SwiftUI views
-│   └── Terminal/     # Embedded terminal components
-├── Resources/        # Icons and Info.plist
-├── Scripts/          # Build scripts
-├── Tests/            # Unit tests
-└── Package.swift     # SPM configuration
-```
-
-### Building
 ```bash
-# Development build
-swift run
+swift test                                      # full suite
+swift test --parallel --enable-code-coverage    # what CI runs
+swift build -c release                          # release binary
+```
 
-# Production build
-swift build --configuration release
+The codebase uses dependency-injected services (`ProfileFileStore`, `AppleScriptRunner`, `ProcessRunner`, `KeychainStore`) so most logic can be unit-tested without touching iTerm2, the filesystem, or the real Keychain. See `Tests/iTermGUITests/Support/` for the in-memory fakes and fixtures.
 
-# Run tests
-swift test
+## Troubleshooting
+
+**App won't open ("unidentified developer")** — right-click the app → **Open**, or System Settings → Privacy & Security → **Open Anyway**.
+
+**Profile doesn't show up in iTerm2** — make sure iTerm2 is running, then check `~/Library/Application Support/iTerm2/DynamicProfiles/` for a JSON file named after the profile. Restart iTerm2 if you don't see it pick up changes.
+
+**SSH key auth fails** — keys must be `chmod 600`. iTermGUI shells out to the system `ssh`, so anything `ssh -i` accepts in your terminal will work here.
+
+**Verbose logging** — run the binary directly:
+```bash
+/Applications/iTermGUI.app/Contents/MacOS/iTermGUI
 ```
 
 ## Contributing
 
-Contributions are welcome. Please submit issues and pull requests on GitHub.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/your-feature`)
-3. Commit your changes (`git commit -m 'Add feature'`)
-4. Push to the branch (`git push origin feature/your-feature`)
-5. Open a Pull Request
+Issues and PRs welcome at [github.com/StakeSquid/iTermGUI](https://github.com/StakeSquid/iTermGUI). Please run `swift test` before opening a PR — CI runs the same suite with code coverage.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Support
-
-- [GitHub Issues](https://github.com/StakeSquid/iTermGUI/issues)
-- [GitHub Discussions](https://github.com/StakeSquid/iTermGUI/discussions)
-
----
-
-Made for the macOS community by [StakeSquid](https://github.com/StakeSquid)
+MIT — see [LICENSE](LICENSE).
