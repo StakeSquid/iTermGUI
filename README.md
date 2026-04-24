@@ -16,6 +16,9 @@ A native macOS app for managing SSH profiles and launching them in iTerm2 — wi
 - **Quick Connect** — menu bar dropdown for launching favorites or recent profiles in one click.
 - **Secure** — passwords stored in the macOS Keychain; everything else lives in plain JSON you can back up or version-control.
 
+<img width="1741" height="1017" alt="Screenshot 2026-04-25 at 2 41 33 AM" src="https://github.com/user-attachments/assets/76d42b81-69b7-4ca0-8f79-e9fee6848b91" />
+
+
 ## Requirements
 
 - macOS 13 (Ventura) or later
