@@ -381,7 +381,7 @@ struct TerminalDebugView: View {
                         .scaleEffect(0.8)
                     Text(debugTests.currentTest)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 } else {
                     Button("Run Tests") {
                         debugTests.runAllTests()
@@ -402,14 +402,14 @@ struct TerminalDebugView: View {
                     ForEach(debugTests.testResults, id: \.name) { result in
                         HStack {
                             Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundColor(result.success ? .green : .red)
+                                .foregroundStyle(result.success ? .green : .red)
                             
                             VStack(alignment: .leading) {
                                 Text(result.name)
                                     .font(.system(.body, design: .monospaced))
                                 Text(result.message)
                                     .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(.secondary)
                             }
                             
                             Spacer()
@@ -422,7 +422,7 @@ struct TerminalDebugView: View {
         }
         .padding()
         .background(Color(NSColor.windowBackgroundColor))
-        .cornerRadius(8)
+        .clipShape(.rect(cornerRadius: 8))
     }
 }
 

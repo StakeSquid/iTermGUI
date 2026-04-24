@@ -75,4 +75,14 @@ jobs:
         xcode-version: latest-stable
     
     - name: Run tests
-      run: swift test
+      run: swift test --parallel --enable-code-coverage
+
+    - name: Coverage summary
+      run: |
+        PROF=$(find .build -name 'default.profdata' 2>/dev/null | head -1)
+        BIN=$(find .build -type d -name '*.xctest' 2>/dev/null | head -1)
+        if [ -n "$PROF" ] && [ -n "$BIN" ]; then
+          xcrun llvm-cov report "$BIN/Contents/MacOS/iTermGUIPackageTests" \
+            -instr-profile="$PROF" \
+            -ignore-filename-regex='Tests|SwiftTerm|\.build' || true
+        fi

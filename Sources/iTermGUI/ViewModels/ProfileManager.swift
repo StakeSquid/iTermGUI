@@ -44,9 +44,9 @@ class ProfileManager: ObservableObject {
     @Published var showingSFTPWindow: Bool = false
     @Published var sftpProfile: SSHProfile? = nil
     
-    private let storage = ProfileStorage()
-    private let sshConfigParser = SSHConfigParser()
-    private let iTerm2Service = ITerm2Service()
+    let storage: ProfileStorage
+    let sshConfigParser: SSHConfigParser
+    let iTerm2Service: ITerm2Service
     private var cancellables = Set<AnyCancellable>()
     
     var filteredProfiles: [SSHProfile] {
@@ -79,7 +79,7 @@ class ProfileManager: ObservableObject {
         return sortProfiles(result)
     }
     
-    private func sortProfiles(_ profiles: [SSHProfile]) -> [SSHProfile] {
+    func sortProfiles(_ profiles: [SSHProfile]) -> [SSHProfile] {
         let sorted = profiles.sorted { lhs, rhs in
             switch sortOption {
             case .name:
@@ -106,9 +106,33 @@ class ProfileManager: ObservableObject {
         return sorted
     }
     
-    init() {
-        loadProfiles()
-        setupAutoSave()
+    convenience init() {
+        self.init(
+            storage: ProfileStorage(),
+            sshConfigParser: SSHConfigParser(),
+            iTerm2Service: ITerm2Service(),
+            autoLoad: true,
+            autoSave: true
+        )
+    }
+
+    init(
+        storage: ProfileStorage,
+        sshConfigParser: SSHConfigParser,
+        iTerm2Service: ITerm2Service,
+        autoLoad: Bool,
+        autoSave: Bool
+    ) {
+        self.storage = storage
+        self.sshConfigParser = sshConfigParser
+        self.iTerm2Service = iTerm2Service
+
+        if autoLoad {
+            loadProfiles()
+        }
+        if autoSave {
+            setupAutoSave()
+        }
     }
     
     private func setupAutoSave() {

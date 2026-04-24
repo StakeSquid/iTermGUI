@@ -118,7 +118,7 @@ struct EmbeddedTerminalSettingsView: View {
             // Theme preview
             ThemePreview(theme: selectedTheme)
                 .frame(height: 80)
-                .cornerRadius(4)
+                .clipShape(.rect(cornerRadius: 4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
@@ -255,15 +255,14 @@ struct EmbeddedTerminalSettingsView: View {
                                         removeCommand(command)
                                     }) {
                                         Image(systemName: "minus.circle.fill")
-                                            .foregroundColor(.red)
+                                            .foregroundStyle(.red)
                                     }
                                     .buttonStyle(.plain)
                                 }
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
-                            .background(Color(NSColor.controlBackgroundColor))
-                            .cornerRadius(4)
+                            .glassBackground(in: .rect(cornerRadius: 4), fallback: .thinMaterial)
                         }
                     }
                 }
@@ -369,7 +368,6 @@ struct EmbeddedTerminalSettingsView: View {
     }
     
     private func showFontPicker() {
-        let fontManager = NSFontManager.shared
         let fontPanel = NSFontPanel.shared
         
         fontPanel.setPanelFont(
@@ -394,22 +392,22 @@ struct ThemePreview: View {
             // Sample terminal output
             HStack(spacing: 4) {
                 Text("$")
-                    .foregroundColor(colors.green.color)
+                    .foregroundStyle(colors.green.color)
                 Text("ls -la")
-                    .foregroundColor(colors.foreground.color)
+                    .foregroundStyle(colors.foreground.color)
             }
             .font(.system(size: 10, weight: .regular, design: .monospaced))
             
             HStack(spacing: 4) {
                 Text("file.txt")
-                    .foregroundColor(colors.blue.color)
+                    .foregroundStyle(colors.blue.color)
                 Text("directory/")
-                    .foregroundColor(colors.cyan.color)
+                    .foregroundStyle(colors.cyan.color)
             }
             .font(.system(size: 10, weight: .regular, design: .monospaced))
             
             Text("Error: not found")
-                .foregroundColor(colors.red.color)
+                .foregroundStyle(colors.red.color)
                 .font(.system(size: 10, weight: .regular, design: .monospaced))
         }
         .padding(6)

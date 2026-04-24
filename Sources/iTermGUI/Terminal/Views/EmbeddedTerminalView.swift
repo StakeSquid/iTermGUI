@@ -22,8 +22,8 @@ struct EmbeddedTerminalView: View {
                 onSelectTab: selectSession
             )
             .frame(height: 36)
-            .background(Color(NSColor.controlBackgroundColor))
-            
+            .glassBackground(in: Rectangle(), fallback: .thinMaterial)
+
             Divider()
             
             // Terminal content - keep all sessions alive but only show selected
@@ -127,33 +127,49 @@ struct TerminalTabBar: View {
     
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 1) {
-                ForEach(sessions) { session in
-                    TerminalTab(
-                        session: session,
-                        isSelected: session.id == selectedSessionId,
-                        isHovered: session.id == hoveredTabId,
-                        onSelect: { onSelectTab(session) },
-                        onClose: { onCloseTab(session) }
-                    )
-                    .onHover { hovering in
-                        hoveredTabId = hovering ? session.id : nil
-                    }
-                }
-                
-                // New tab button
-                Button(action: onNewTab) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12))
-                        .frame(width: 24, height: 24)
-                }
-                .buttonStyle(.plain)
+            tabsRow
                 .padding(.horizontal, 4)
-                
-                Spacer()
+                .padding(.vertical, 6)
+        }
+    }
+
+    @ViewBuilder
+    private var tabsRow: some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: 1) {
+                tabsHStack
             }
+        } else {
+            tabsHStack
+        }
+    }
+
+    @ViewBuilder
+    private var tabsHStack: some View {
+        HStack(spacing: 1) {
+            ForEach(sessions) { session in
+                TerminalTab(
+                    session: session,
+                    isSelected: session.id == selectedSessionId,
+                    isHovered: session.id == hoveredTabId,
+                    onSelect: { onSelectTab(session) },
+                    onClose: { onCloseTab(session) }
+                )
+                .onHover { hovering in
+                    hoveredTabId = hovering ? session.id : nil
+                }
+            }
+
+            // New tab button
+            Button(action: onNewTab) {
+                Image(systemName: "plus")
+                    .font(.system(size: 12))
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
             .padding(.horizontal, 4)
-            .padding(.vertical, 6)
+
+            Spacer()
         }
     }
 }
@@ -175,8 +191,7 @@ struct TerminalTab: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(tabBackground)
-        .overlay(tabBorder)
+        .modifier(TabSelectionBackground(isSelected: isSelected))
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
             showCloseButton = hovering
@@ -211,16 +226,6 @@ struct TerminalTab: View {
             .buttonStyle(.plain)
             .frame(width: 14, height: 14)
         }
-    }
-    
-    private var tabBackground: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(isSelected ? Color(NSColor.selectedContentBackgroundColor) : Color.clear)
-    }
-    
-    private var tabBorder: some View {
-        RoundedRectangle(cornerRadius: 4)
-            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
     }
     
     @ViewBuilder
@@ -461,7 +466,7 @@ struct EmptyTerminalView: View {
         VStack(spacing: 16) {
             Image(systemName: "terminal")
                 .font(.system(size: 48))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("No terminal session")
                 .font(.title3)
@@ -483,7 +488,7 @@ struct DisconnectedOverlay: View {
         VStack(spacing: 12) {
             Image(systemName: "wifi.slash")
                 .font(.system(size: 36))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("Disconnected")
                 .font(.headline)
@@ -494,8 +499,7 @@ struct DisconnectedOverlay: View {
             .buttonStyle(.borderedProminent)
         }
         .padding(24)
-        .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
-        .cornerRadius(8)
+        .glassBackground(in: .rect(cornerRadius: 8), fallback: .ultraThinMaterial)
     }
 }
 
@@ -507,7 +511,7 @@ struct ErrorOverlay: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 36))
-                .foregroundColor(.red)
+                .foregroundStyle(.red)
             
             Text("Connection Error")
                 .font(.headline)
@@ -515,7 +519,7 @@ struct ErrorOverlay: View {
             Text(message)
                 .font(.caption)
                 .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: 300)
             
             Button("Retry") {
@@ -524,8 +528,19 @@ struct ErrorOverlay: View {
             .buttonStyle(.borderedProminent)
         }
         .padding(24)
-        .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
-        .cornerRadius(8)
+        .glassBackground(in: .rect(cornerRadius: 8), fallback: .ultraThinMaterial)
+    }
+}
+
+private struct TabSelectionBackground: ViewModifier {
+    let isSelected: Bool
+
+    func body(content: Content) -> some View {
+        if isSelected {
+            content.glassBackground(tinted: .accentColor, in: .rect(cornerRadius: 4), fallback: .ultraThinMaterial)
+        } else {
+            content
+        }
     }
 }
 

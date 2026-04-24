@@ -44,7 +44,7 @@ struct GlobalTerminalContainer: View {
                 }
             } else {
                 Text("Select a profile to view terminals")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }

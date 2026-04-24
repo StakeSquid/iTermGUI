@@ -35,8 +35,8 @@ struct AllTerminalsView: View {
                     onSelectTab: selectSession
                 )
                 .frame(height: 36)
-                .background(Color(NSColor.controlBackgroundColor))
-                
+                .glassBackground(in: Rectangle(), fallback: .thinMaterial)
+
                 Divider()
             }
             

@@ -37,7 +37,7 @@ struct PersistentTerminalView: View {
                     // Show placeholder when no sessions
                     Text("No active sessions")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                 }
                 
@@ -55,8 +55,8 @@ struct PersistentTerminalView: View {
             .padding(.horizontal, 4)
             .padding(.vertical, 6)
             .frame(height: 36)
-            .background(Color(NSColor.controlBackgroundColor))
-            
+            .glassBackground(in: Rectangle(), fallback: .thinMaterial)
+
             Divider()
             
             // Render ALL terminals from ALL profiles, use opacity to show/hide

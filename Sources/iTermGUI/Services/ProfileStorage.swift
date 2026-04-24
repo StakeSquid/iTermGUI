@@ -4,124 +4,113 @@ import Security
 class ProfileStorage {
     private let profilesKey = "com.iTermGUI.profiles"
     private let groupsKey = "com.iTermGUI.groups"
-    private let keychainService = "com.iTermGUI.passwords"
-    
-    private var appDirectory: URL {
-        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return documentsDirectory.appendingPathComponent("iTermGUI")
+    let keychainService: String
+
+    private let rootDirectory: URL
+    private let fileStore: ProfileFileStore
+    private let keychain: KeychainStore
+
+    var appDirectory: URL { rootDirectory }
+    var profilesFile: URL { rootDirectory.appendingPathComponent("profiles.json") }
+    var groupsFile: URL { rootDirectory.appendingPathComponent("groups.json") }
+    var defaultsFile: URL { rootDirectory.appendingPathComponent("defaults.json") }
+
+    convenience init() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        self.init(rootDirectory: docs.appendingPathComponent("iTermGUI"))
     }
-    
-    private var profilesFile: URL {
-        appDirectory.appendingPathComponent("profiles.json")
-    }
-    
-    private var groupsFile: URL {
-        appDirectory.appendingPathComponent("groups.json")
-    }
-    
-    private var defaultsFile: URL {
-        appDirectory.appendingPathComponent("defaults.json")
-    }
-    
-    init() {
+
+    init(
+        rootDirectory: URL,
+        fileStore: ProfileFileStore = FileManagerStore(),
+        keychain: KeychainStore = SecKeychainStore(),
+        keychainService: String = "com.iTermGUI.passwords",
+        migrateFromDocuments: Bool = true
+    ) {
+        self.rootDirectory = rootDirectory
+        self.fileStore = fileStore
+        self.keychain = keychain
+        self.keychainService = keychainService
+
         createAppDirectoryIfNeeded()
-        migrateOldFilesIfNeeded()
+        if migrateFromDocuments {
+            migrateOldFilesIfNeeded()
+        }
     }
-    
+
     private func createAppDirectoryIfNeeded() {
         do {
-            try FileManager.default.createDirectory(at: appDirectory, withIntermediateDirectories: true, attributes: nil)
+            try fileStore.createDirectory(at: rootDirectory)
         } catch {
             print("Error creating app directory: \(error)")
         }
     }
-    
+
     private func migrateOldFilesIfNeeded() {
-        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let oldProfilesFile = documentsDirectory.appendingPathComponent("profiles.json")
-        let oldGroupsFile = documentsDirectory.appendingPathComponent("groups.json")
-        let oldDefaultsFile = documentsDirectory.appendingPathComponent("defaults.json")
-        
-        // Migrate profiles.json
-        if FileManager.default.fileExists(atPath: oldProfilesFile.path) &&
-           !FileManager.default.fileExists(atPath: profilesFile.path) {
-            do {
-                try FileManager.default.moveItem(at: oldProfilesFile, to: profilesFile)
-                print("Migrated profiles.json to iTermGUI folder")
-            } catch {
-                print("Error migrating profiles.json: \(error)")
-            }
-        }
-        
-        // Migrate groups.json
-        if FileManager.default.fileExists(atPath: oldGroupsFile.path) &&
-           !FileManager.default.fileExists(atPath: groupsFile.path) {
-            do {
-                try FileManager.default.moveItem(at: oldGroupsFile, to: groupsFile)
-                print("Migrated groups.json to iTermGUI folder")
-            } catch {
-                print("Error migrating groups.json: \(error)")
-            }
-        }
-        
-        // Migrate defaults.json
-        if FileManager.default.fileExists(atPath: oldDefaultsFile.path) &&
-           !FileManager.default.fileExists(atPath: defaultsFile.path) {
-            do {
-                try FileManager.default.moveItem(at: oldDefaultsFile, to: defaultsFile)
-                print("Migrated defaults.json to iTermGUI folder")
-            } catch {
-                print("Error migrating defaults.json: \(error)")
-            }
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        migrate(src: docs.appendingPathComponent("profiles.json"), dst: profilesFile, label: "profiles.json")
+        migrate(src: docs.appendingPathComponent("groups.json"), dst: groupsFile, label: "groups.json")
+        migrate(src: docs.appendingPathComponent("defaults.json"), dst: defaultsFile, label: "defaults.json")
+    }
+
+    private func migrate(src: URL, dst: URL, label: String) {
+        guard fileStore.fileExists(at: src), !fileStore.fileExists(at: dst) else { return }
+        do {
+            try fileStore.moveItem(at: src, to: dst)
+            print("Migrated \(label) to iTermGUI folder")
+        } catch {
+            print("Error migrating \(label): \(error)")
         }
     }
-    
+
     func loadProfiles() -> [SSHProfile] {
-        guard let data = try? Data(contentsOf: profilesFile) else {
+        guard let data = try? fileStore.read(profilesFile) else {
             return []
         }
-        
+
         do {
             var profiles = try JSONDecoder().decode([SSHProfile].self, from: data)
-            
             for i in profiles.indices {
-                if let password = loadPasswordFromKeychain(for: profiles[i].id) {
+                if let password = keychain.getPassword(forAccount: profiles[i].id.uuidString, service: keychainService) {
                     profiles[i].password = password
                 }
             }
-            
             return profiles
         } catch {
             print("Error loading profiles: \(error)")
             return []
         }
     }
-    
+
     func saveProfiles(_ profiles: [SSHProfile]) {
         do {
             var profilesToSave = profiles
-            
+
             for i in profilesToSave.indices {
+                let account = profilesToSave[i].id.uuidString
                 if let password = profilesToSave[i].password {
-                    savePasswordToKeychain(password, for: profilesToSave[i].id)
+                    do {
+                        try keychain.setPassword(password, forAccount: account, service: keychainService)
+                    } catch {
+                        print("Error saving password to keychain: \(error)")
+                    }
                     profilesToSave[i].password = nil
                 } else {
-                    deletePasswordFromKeychain(for: profilesToSave[i].id)
+                    keychain.deletePassword(forAccount: account, service: keychainService)
                 }
             }
-            
+
             let data = try JSONEncoder().encode(profilesToSave)
-            try data.write(to: profilesFile)
+            try fileStore.write(data, to: profilesFile)
         } catch {
             print("Error saving profiles: \(error)")
         }
     }
-    
+
     func loadGroups() -> [ProfileGroup] {
-        guard let data = try? Data(contentsOf: groupsFile) else {
+        guard let data = try? fileStore.read(groupsFile) else {
             return ProfileGroup.defaultGroups
         }
-        
         do {
             return try JSONDecoder().decode([ProfileGroup].self, from: data)
         } catch {
@@ -129,80 +118,32 @@ class ProfileStorage {
             return ProfileGroup.defaultGroups
         }
     }
-    
+
     func saveGroups(_ groups: [ProfileGroup]) {
         do {
             let data = try JSONEncoder().encode(groups)
-            try data.write(to: groupsFile)
+            try fileStore.write(data, to: groupsFile)
         } catch {
             print("Error saving groups: \(error)")
         }
     }
-    
-    private func savePasswordToKeychain(_ password: String, for profileID: UUID) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: profileID.uuidString,
-            kSecValueData as String: password.data(using: .utf8)!
-        ]
-        
-        SecItemDelete(query as CFDictionary)
-        
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status != errSecSuccess {
-            print("Error saving password to keychain: \(status)")
-        }
-    }
-    
-    private func loadPasswordFromKeychain(for profileID: UUID) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: profileID.uuidString,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        
-        var dataTypeRef: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &dataTypeRef)
-        
-        if status == errSecSuccess,
-           let data = dataTypeRef as? Data,
-           let password = String(data: data, encoding: .utf8) {
-            return password
-        }
-        
-        return nil
-    }
-    
-    private func deletePasswordFromKeychain(for profileID: UUID) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: profileID.uuidString
-        ]
-        
-        SecItemDelete(query as CFDictionary)
-    }
-    
+
     func exportProfiles(to url: URL, profiles: [SSHProfile]) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
         let data = try encoder.encode(profiles)
-        try data.write(to: url)
+        try fileStore.write(data, to: url)
     }
-    
+
     func importProfiles(from url: URL) throws -> [SSHProfile] {
-        let data = try Data(contentsOf: url)
+        let data = try fileStore.read(url)
         return try JSONDecoder().decode([SSHProfile].self, from: data)
     }
-    
+
     func loadGlobalDefaults() -> GlobalDefaults {
-        guard let data = try? Data(contentsOf: defaultsFile) else {
+        guard let data = try? fileStore.read(defaultsFile) else {
             return GlobalDefaults.standard
         }
-        
         do {
             return try JSONDecoder().decode(GlobalDefaults.self, from: data)
         } catch {
@@ -210,11 +151,11 @@ class ProfileStorage {
             return GlobalDefaults.standard
         }
     }
-    
+
     func saveGlobalDefaults(_ defaults: GlobalDefaults) {
         do {
             let data = try JSONEncoder().encode(defaults)
-            try data.write(to: defaultsFile)
+            try fileStore.write(data, to: defaultsFile)
         } catch {
             print("Error saving global defaults: \(error)")
         }

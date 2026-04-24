@@ -74,7 +74,7 @@ struct SFTPView: View {
                 
                 if !sftpService.transfers.isEmpty {
                     Text("\(sftpService.transfers.filter { $0.status == .transferring }.count) active transfers")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Button(action: {
@@ -82,7 +82,7 @@ struct SFTPView: View {
                 }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.title2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Close SFTP Window")
@@ -391,8 +391,7 @@ struct FilePaneHeader: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(5)
+                    .glassBackground(in: .rect(cornerRadius: 5), fallback: .thinMaterial)
                 }
                 .menuStyle(.borderlessButton)
                 
@@ -505,7 +504,7 @@ struct FilePaneContent: View {
                         onResizePhase: handleResizePhase // callback for drag events
                     )
                     .frame(width: totalContentWidth, height: headerHeight)
-                    .background(Color(NSColor.controlBackgroundColor))
+                    .glassBackground(in: Rectangle(), fallback: .regularMaterial)
                     .transaction { $0.disablesAnimations = true }
                     
                     Divider()
@@ -801,7 +800,7 @@ private struct ResizerGrip: View {
             .overlay(
                 Rectangle()
                     .frame(width: 2)
-                    .foregroundColor((hovering || dragging) ? .accentColor.opacity(0.9) : .gray.opacity(0.35))
+                    .foregroundStyle((hovering || dragging) ? Color.accentColor.opacity(0.9) : Color.gray.opacity(0.35))
             )
             .contentShape(Rectangle())
             .onHover { isHovering in
@@ -846,7 +845,7 @@ struct FileRow: View {
         HStack(spacing: 0) {
             // Icon
             Image(systemName: (isParentRow || (file?.isDirectory ?? false)) ? "folder.fill" : "doc.fill")
-                .foregroundColor((isParentRow || (file?.isDirectory ?? false)) ? .blue : .gray)
+                .foregroundStyle((isParentRow || (file?.isDirectory ?? false)) ? .blue : .gray)
                 .frame(width: iconWidth, height: heights, alignment: .center)
             
             // Name
@@ -862,7 +861,7 @@ struct FileRow: View {
             // Size
             Text(isParentRow ? "" : (file?.sizeString ?? ""))
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
                 .frame(width: sizeWidth, height: heights, alignment: .trailing)
             
@@ -871,7 +870,7 @@ struct FileRow: View {
             // Permissions
             Text(isParentRow ? "" : (file?.permissions ?? ""))
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
                 .frame(width: permWidth, height: heights, alignment: .center)
             
@@ -880,7 +879,7 @@ struct FileRow: View {
             // Date
             Text(isParentRow ? "" : (file?.dateString ?? ""))
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
                 .frame(width: dateWidth, height: heights, alignment: .trailing)
         }
@@ -912,19 +911,19 @@ struct TransferQueueView: View {
                 
                 if activeCount > 0 {
                     Label("\(activeCount)", systemImage: "arrow.right.circle")
-                        .foregroundColor(.blue)
+                        .foregroundStyle(.blue)
                         .font(.caption)
                 }
                 
                 if completedCount > 0 {
                     Label("\(completedCount)", systemImage: "checkmark.circle.fill")
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                         .font(.caption)
                 }
                 
                 if failedCount > 0 {
                     Label("\(failedCount)", systemImage: "xmark.circle.fill")
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .font(.caption)
                 }
             }
@@ -937,10 +936,10 @@ struct TransferQueueView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "arrow.right.arrow.left.circle")
                         .font(.system(size: 30))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Text("No transfers in queue")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
@@ -955,7 +954,7 @@ struct TransferQueueView: View {
                 }
             }
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .glassBackground(in: Rectangle(), fallback: .regularMaterial)
     }
 }
 
@@ -967,7 +966,7 @@ struct TransferRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Image(systemName: statusIcon)
-                    .foregroundColor(statusColor)
+                    .foregroundStyle(statusColor)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(URL(fileURLWithPath: transfer.sourcePath).lastPathComponent)
@@ -977,12 +976,12 @@ struct TransferRow: View {
                     HStack {
                         Text("\(transfer.sourceLocation.displayName) → \(transfer.destinationLocation.displayName)")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         
                         if transfer.status == .transferring {
                             Text(transfer.progressString)
                                 .font(.caption)
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                         }
                     }
                     
@@ -990,7 +989,7 @@ struct TransferRow: View {
                     if transfer.status == .failed, let error = transfer.error {
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                             .lineLimit(showingError ? nil : 1)
                             .truncationMode(.tail)
                     }
@@ -1004,7 +1003,7 @@ struct TransferRow: View {
                 } else if transfer.status == .failed && transfer.error != nil {
                     Button(action: { showingError.toggle() }) {
                         Image(systemName: showingError ? "chevron.up.circle" : "info.circle")
-                            .foregroundColor(.red)
+                            .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
                     .help(showingError ? "Hide error details" : "Show error details")
@@ -1020,27 +1019,27 @@ struct TransferRow: View {
                         .fontWeight(.semibold)
                     Text(error)
                         .font(.caption)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     
                     HStack(spacing: 4) {
                         Text("From:")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text(transfer.sourcePath)
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
                     
                     HStack(spacing: 4) {
                         Text("To:")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text(transfer.destinationPath)
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -1049,10 +1048,9 @@ struct TransferRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(NSColor.textBackgroundColor))
-        .cornerRadius(5)
+        .glassBackground(in: .rect(cornerRadius: 5), fallback: .regularMaterial)
     }
-    
+
     private var statusIcon: String {
         switch transfer.status {
         case .pending: return "clock"
