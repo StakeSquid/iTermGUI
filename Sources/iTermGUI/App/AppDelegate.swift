@@ -10,6 +10,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Ensure app can become active
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Materialize the SSH askpass helper and remove any stale password
+        // files left over from a previous crashed launch.
+        SSHPasswordHelper.shared.ensureInstalled()
+        SSHPasswordHelper.shared.cleanupStalePasswordFiles()
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

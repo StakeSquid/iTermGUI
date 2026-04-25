@@ -6,6 +6,7 @@ class ITerm2Service {
     private let fileStore: ProfileFileStore
     private let scriptRunner: AppleScriptRunner
     private let processRunner: ProcessRunner
+    private let passwordHelper: SSHPasswordHelper
 
     convenience init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -19,16 +20,19 @@ class ITerm2Service {
         dynamicProfilesRoot: URL,
         fileStore: ProfileFileStore = FileManagerStore(),
         scriptRunner: AppleScriptRunner = NSAppleScriptRunner(),
-        processRunner: ProcessRunner = FoundationProcessRunner()
+        processRunner: ProcessRunner = FoundationProcessRunner(),
+        passwordHelper: SSHPasswordHelper = .shared
     ) {
         self.dynamicProfilesPath = dynamicProfilesRoot
         self.fileStore = fileStore
         self.scriptRunner = scriptRunner
         self.processRunner = processRunner
+        self.passwordHelper = passwordHelper
     }
 
     func openConnection(profile: SSHProfile, mode: ConnectionMode = .windows) {
-        updateDynamicProfiles(with: [profile])
+        let passwordFiles = stagePasswordFiles(for: [profile])
+        updateDynamicProfiles(with: [profile], passwordFiles: passwordFiles)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             self.runScript(self.launchScriptForProfile(profile.name, newWindow: true))
         }
@@ -36,7 +40,8 @@ class ITerm2Service {
 
     func openConnections(profiles: [SSHProfile], mode: ConnectionMode) {
         guard !profiles.isEmpty else { return }
-        updateDynamicProfiles(with: profiles)
+        let passwordFiles = stagePasswordFiles(for: profiles)
+        updateDynamicProfiles(with: profiles, passwordFiles: passwordFiles)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             switch mode {
             case .tabs:
@@ -49,7 +54,23 @@ class ITerm2Service {
         }
     }
 
-    private func updateDynamicProfiles(with profiles: [SSHProfile]) {
+    /// For each profile that uses password auth and has a stored password,
+    /// stage a one-shot password file. Returns a `[profileID: passwordFile]`
+    /// map so the caller can wire those file paths into the launch command.
+    private func stagePasswordFiles(for profiles: [SSHProfile]) -> [UUID: URL] {
+        var result: [UUID: URL] = [:]
+        for profile in profiles {
+            guard profile.authMethod == .password,
+                  let password = profile.password, !password.isEmpty,
+                  let file = passwordHelper.stagePassword(password) else {
+                continue
+            }
+            result[profile.id] = file
+        }
+        return result
+    }
+
+    private func updateDynamicProfiles(with profiles: [SSHProfile], passwordFiles: [UUID: URL] = [:]) {
         ensureDynamicProfilesDirectory()
 
         let profileFile = dynamicProfilesPath.appendingPathComponent("iTermGUI.json")
@@ -62,7 +83,7 @@ class ITerm2Service {
         }
 
         for profile in profiles {
-            let dynamicProfile = createITerm2Profile(from: profile)
+            let dynamicProfile = createITerm2Profile(from: profile, passwordFile: passwordFiles[profile.id])
             existingProfiles.removeAll { ($0["Guid"] as? String) == profile.id.uuidString }
             existingProfiles.append(dynamicProfile)
         }
@@ -112,50 +133,62 @@ class ITerm2Service {
     }
 
     func buildSSHCommand(from profile: SSHProfile) -> String {
-        var sshCommand = "ssh"
+        return (["ssh"] + sshArguments(for: profile)).joined(separator: " ")
+    }
+
+    /// All arguments after the `ssh` program name, in the same order
+    /// `buildSSHCommand` emits them. Shared by the iTerm2 launch path and the
+    /// SSH_ASKPASS wrapper builder.
+    func sshArguments(for profile: SSHProfile) -> [String] {
+        var args: [String] = []
 
         if !profile.username.isEmpty {
-            sshCommand += " \(profile.username)@\(profile.host)"
+            args.append("\(profile.username)@\(profile.host)")
         } else {
-            sshCommand += " \(profile.host)"
+            args.append(profile.host)
         }
 
         if profile.port != 22 {
-            sshCommand += " -p \(profile.port)"
+            args.append(contentsOf: ["-p", "\(profile.port)"])
         }
 
         if let keyPath = profile.privateKeyPath ?? profile.identityFile {
-            sshCommand += " -i \(keyPath)"
+            args.append(contentsOf: ["-i", keyPath])
         }
 
         if let jumpHost = profile.jumpHost {
-            sshCommand += " -J \(jumpHost)"
+            args.append(contentsOf: ["-J", jumpHost])
         }
 
         for forward in profile.localForwards {
-            sshCommand += " -L \(forward.localPort):\(forward.remoteHost):\(forward.remotePort)"
+            args.append(contentsOf: ["-L", "\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)"])
         }
 
         for forward in profile.remoteForwards {
-            sshCommand += " -R \(forward.localPort):\(forward.remoteHost):\(forward.remotePort)"
+            args.append(contentsOf: ["-R", "\(forward.localPort):\(forward.remoteHost):\(forward.remotePort)"])
         }
 
         if profile.compression {
-            sshCommand += " -C"
+            args.append("-C")
         }
 
         if !profile.strictHostKeyChecking {
-            sshCommand += " -o StrictHostKeyChecking=no"
+            args.append(contentsOf: ["-o", "StrictHostKeyChecking=no"])
         }
 
-        sshCommand += " -o ConnectTimeout=\(profile.connectionTimeout)"
-        sshCommand += " -o ServerAliveInterval=\(profile.serverAliveInterval)"
+        args.append(contentsOf: ["-o", "ConnectTimeout=\(profile.connectionTimeout)"])
+        args.append(contentsOf: ["-o", "ServerAliveInterval=\(profile.serverAliveInterval)"])
 
-        return sshCommand
+        return args
     }
 
-    func createITerm2Profile(from profile: SSHProfile) -> [String: Any] {
-        let sshCommand = buildSSHCommand(from: profile)
+    func createITerm2Profile(from profile: SSHProfile, passwordFile: URL? = nil) -> [String: Any] {
+        let command: String
+        if let passwordFile {
+            command = passwordHelper.iTerm2Command(passwordFile: passwordFile, sshArguments: sshArguments(for: profile))
+        } else {
+            command = buildSSHCommand(from: profile)
+        }
 
         var initialText = ""
         if !profile.customCommands.isEmpty {
@@ -167,7 +200,7 @@ class ITerm2Service {
             "Guid": profile.id.uuidString,
             "Title Components": 64,  // 64 = Profile Name component
             "Custom Command": "Yes",
-            "Command": sshCommand,
+            "Command": command,
             "Tags": Array(profile.tags),
             "Badge Text": profile.host,
             "Initial Text": initialText,

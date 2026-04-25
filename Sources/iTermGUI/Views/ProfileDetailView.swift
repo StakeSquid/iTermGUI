@@ -38,49 +38,44 @@ struct ProfileDetailView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            DetailHeader(
-                profile: editedProfile,
-                isEditing: $isEditing,
-                onSave: saveChanges,
-                onCancel: cancelEditing,
-                onConnect: { profileManager.connectToProfile(profile) },
-                onSFTP: { profileManager.openSFTPForProfile(profile) }
-            )
+        ZStack(alignment: .top) {
+            DetailBackdrop(profile: profile)
 
-            Divider()
+            VStack(spacing: 0) {
+                DetailHeader(
+                    profile: editedProfile,
+                    isEditing: $isEditing,
+                    onSave: saveChanges,
+                    onCancel: cancelEditing,
+                    onConnect: { profileManager.connectToProfile(profile) },
+                    onSFTP: { profileManager.openSFTPForProfile(profile) }
+                )
 
-            TabView(selection: $selectedTab) {
-                ConnectionTabView(profile: $editedProfile, isEditing: isEditing)
-                    .tabItem { Label(DetailTab.connection.rawValue, systemImage: DetailTab.connection.systemImage) }
-                    .tag(DetailTab.connection)
+                GlassTabBar(selection: $selectedTab)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
 
-                AuthenticationTabView(profile: $editedProfile, isEditing: isEditing)
-                    .tabItem { Label(DetailTab.authentication.rawValue, systemImage: DetailTab.authentication.systemImage) }
-                    .tag(DetailTab.authentication)
-
-                AdvancedTabView(profile: $editedProfile, isEditing: isEditing)
-                    .tabItem { Label(DetailTab.advanced.rawValue, systemImage: DetailTab.advanced.systemImage) }
-                    .tag(DetailTab.advanced)
-
-                TerminalTabView(profile: $editedProfile, isEditing: isEditing)
-                    .tabItem { Label(DetailTab.terminal.rawValue, systemImage: DetailTab.terminal.systemImage) }
-                    .tag(DetailTab.terminal)
-
-                CommandsTabView(profile: $editedProfile, isEditing: isEditing)
-                    .tabItem { Label(DetailTab.commands.rawValue, systemImage: DetailTab.commands.systemImage) }
-                    .tag(DetailTab.commands)
-
-                EmbeddedTerminalSettingsView(profile: $editedProfile, isEditing: isEditing)
-                    .tabItem { Label(DetailTab.embeddedTerminalSettings.rawValue, systemImage: DetailTab.embeddedTerminalSettings.systemImage) }
-                    .tag(DetailTab.embeddedTerminalSettings)
-
-                PersistentTerminalView(currentProfileId: editedProfile.id)
-                    .tabItem { Label(DetailTab.embeddedTerminal.rawValue, systemImage: DetailTab.embeddedTerminal.systemImage) }
-                    .tag(DetailTab.embeddedTerminal)
+                Group {
+                    switch selectedTab {
+                    case .connection:
+                        ConnectionTabView(profile: $editedProfile, isEditing: isEditing)
+                    case .authentication:
+                        AuthenticationTabView(profile: $editedProfile, isEditing: isEditing)
+                    case .advanced:
+                        AdvancedTabView(profile: $editedProfile, isEditing: isEditing)
+                    case .terminal:
+                        TerminalTabView(profile: $editedProfile, isEditing: isEditing)
+                    case .commands:
+                        CommandsTabView(profile: $editedProfile, isEditing: isEditing)
+                    case .embeddedTerminalSettings:
+                        EmbeddedTerminalSettingsView(profile: $editedProfile, isEditing: isEditing)
+                    case .embeddedTerminal:
+                        PersistentTerminalView(currentProfileId: editedProfile.id)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("ProfileChanged"))) { _ in
             editedProfile = profile
@@ -129,11 +124,11 @@ struct DetailHeader: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 26)
-                    .contentShape(Rectangle())
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .glassBackground(in: .circle, fallback: .thinMaterial)
             .help("Back to home")
 
             ProfileAvatar(profile: profile, size: 44)
@@ -185,7 +180,11 @@ struct DetailHeader: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(.background)
+        .background(alignment: .bottom) {
+            Rectangle()
+                .fill(.separator.opacity(0.5))
+                .frame(height: 0.5)
+        }
     }
 
     @ViewBuilder
@@ -196,45 +195,66 @@ struct DetailHeader: View {
                     .keyboardShortcut(.escape)
                 Button("Save", action: onSave)
                     .keyboardShortcut(.return)
-                    .buttonStyle(.borderedProminent)
+                    .glassProminentButton()
             }
         } else {
-            HStack(spacing: 6) {
-                Button {
-                    ITerm2Service().openLocalhost()
-                } label: {
-                    Image(systemName: "terminal")
-                }
-                .help("Open localhost console")
-
-                Button {
-                    isEditing = true
-                    NSApp.activate(ignoringOtherApps: true)
-                    if let window = NSApp.keyWindow {
-                        window.makeKey()
-                        window.makeFirstResponder(window.contentView)
-                    }
-                } label: {
-                    Image(systemName: "pencil")
-                }
-                .help("Edit profile")
-
-                Button {
-                    onSFTP()
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .help("Open SFTP file transfer")
-
-                Button(action: onConnect) {
-                    Label("Connect", systemImage: "play.fill")
-                        .padding(.horizontal, 4)
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: .command)
-                .help("Connect to this profile (⌘↩)")
-            }
+            actionButtonsCluster
         }
+    }
+
+    @ViewBuilder
+    private var actionButtonsCluster: some View {
+        let cluster = HStack(spacing: 6) {
+            HeaderIconButton(systemName: "terminal", help: "Open localhost console") {
+                ITerm2Service().openLocalhost()
+            }
+            HeaderIconButton(systemName: "pencil", help: "Edit profile") {
+                isEditing = true
+                NSApp.activate(ignoringOtherApps: true)
+                if let window = NSApp.keyWindow {
+                    window.makeKey()
+                    window.makeFirstResponder(window.contentView)
+                }
+            }
+            HeaderIconButton(systemName: "folder", help: "Open SFTP file transfer", action: onSFTP)
+
+            Button(action: onConnect) {
+                Label("Connect", systemImage: "play.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+            }
+            .glassProminentButton()
+            .keyboardShortcut(.return, modifiers: .command)
+            .help("Connect to this profile (⌘↩)")
+        }
+
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: 6) { cluster }
+        } else {
+            cluster
+        }
+    }
+}
+
+private struct HeaderIconButton: View {
+    let systemName: String
+    let help: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isHovered ? Color.primary : Color.secondary)
+                .frame(width: 30, height: 26)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .glassBackground(in: .capsule, fallback: .thinMaterial)
+        .onHover { isHovered = $0 }
+        .help(help)
     }
 }
 
@@ -874,4 +894,134 @@ private struct GroupPillBackground: ViewModifier {
 
 extension PortForward: Identifiable {
     var id: String { "\(localPort)-\(remoteHost)-\(remotePort)" }
+}
+
+// MARK: - Detail backdrop
+
+private struct DetailBackdrop: View {
+    let profile: SSHProfile
+
+    var body: some View {
+        let tint = ProfileAvatar.color(for: profile)
+        ZStack(alignment: .top) {
+            LinearGradient(
+                colors: [tint.opacity(0.12), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            .frame(maxHeight: 280)
+            .frame(maxWidth: .infinity, alignment: .top)
+
+            LinearGradient(
+                colors: [.accentColor.opacity(0.05), Color.clear],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Glass tab bar
+
+struct GlassTabBar: View {
+    @Binding var selection: ProfileDetailView.DetailTab
+    @Namespace private var animation
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            tabRow
+                .padding(.horizontal, 2)
+                .padding(.vertical, 4)
+        }
+        .scrollClipDisabled()
+    }
+
+    @ViewBuilder
+    private var tabRow: some View {
+        if #available(macOS 26, *) {
+            GlassEffectContainer(spacing: 4) {
+                tabButtons
+            }
+        } else {
+            tabButtons
+        }
+    }
+
+    private var tabButtons: some View {
+        HStack(spacing: 4) {
+            ForEach(ProfileDetailView.DetailTab.allCases) { tab in
+                TabPill(
+                    tab: tab,
+                    isSelected: selection == tab,
+                    namespace: animation
+                ) {
+                    withAnimation(.smooth(duration: 0.22)) {
+                        selection = tab
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct TabPill: View {
+    let tab: ProfileDetailView.DetailTab
+    let isSelected: Bool
+    let namespace: Namespace.ID
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: tab.systemImage)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(tab.rawValue)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .modifier(TabPillBackground(isSelected: isSelected, isHovered: isHovered, namespace: namespace, tab: tab))
+        .onHover { isHovered = $0 }
+    }
+
+    private var foreground: Color {
+        if isSelected { return .white }
+        if isHovered { return .primary }
+        return .secondary
+    }
+}
+
+private struct TabPillBackground: ViewModifier {
+    let isSelected: Bool
+    let isHovered: Bool
+    let namespace: Namespace.ID
+    let tab: ProfileDetailView.DetailTab
+
+    func body(content: Content) -> some View {
+        if isSelected {
+            if #available(macOS 26, *) {
+                content
+                    .glassEffect(.regular.tint(.accentColor).interactive(), in: .capsule)
+                    .glassEffectID("selectedTab", in: namespace)
+            } else {
+                content
+                    .background(Color.accentColor, in: Capsule())
+            }
+        } else if isHovered {
+            content
+                .background(.primary.opacity(0.06), in: Capsule())
+        } else {
+            content
+                .background(Color.clear, in: Capsule())
+        }
+    }
 }

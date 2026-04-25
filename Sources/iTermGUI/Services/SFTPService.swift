@@ -7,13 +7,74 @@ class SFTPService: ObservableObject {
 
     private let processRunner: ProcessRunner
     private let fileStore: ProfileFileStore
+    private let passwordHelper: SSHPasswordHelper
+
+    private let processLock = NSLock()
+    private var activeProcesses: [UUID: [Process]] = [:]
+    private var explicitlyCancelled: Set<UUID> = []
+
+    /// How a single non-interactive ssh/scp invocation should authenticate.
+    /// Password-auth profiles get a freshly staged askpass file; everything
+    /// else gets `BatchMode=yes` so non-interactive ops fail fast instead of
+    /// hanging on a missing tty.
+    struct SSHAuth {
+        let extraOptions: [String]
+        let environment: [String: String]?
+    }
 
     init(
         processRunner: ProcessRunner = FoundationProcessRunner(),
-        fileStore: ProfileFileStore = FileManagerStore()
+        fileStore: ProfileFileStore = FileManagerStore(),
+        passwordHelper: SSHPasswordHelper = .shared
     ) {
         self.processRunner = processRunner
         self.fileStore = fileStore
+        self.passwordHelper = passwordHelper
+    }
+
+    func sshAuth(for profile: SSHProfile) -> SSHAuth {
+        if profile.authMethod == .password,
+           let password = profile.password, !password.isEmpty,
+           let passwordFile = passwordHelper.stagePassword(password) {
+            return SSHAuth(
+                extraOptions: [],
+                environment: passwordHelper.embeddedEnvironment(passwordFile: passwordFile)
+            )
+        }
+        return SSHAuth(extraOptions: ["-o", "BatchMode=yes"], environment: nil)
+    }
+
+    private func registerProcess(_ process: Process, for transferID: UUID) {
+        processLock.lock()
+        activeProcesses[transferID, default: []].append(process)
+        processLock.unlock()
+    }
+
+    private func unregisterProcesses(for transferID: UUID) {
+        processLock.lock()
+        activeProcesses[transferID] = nil
+        processLock.unlock()
+    }
+
+    private func wasCancelled(_ transferID: UUID) -> Bool {
+        processLock.lock()
+        defer { processLock.unlock() }
+        return explicitlyCancelled.contains(transferID)
+    }
+
+    func cancelTransfer(_ id: UUID) {
+        processLock.lock()
+        explicitlyCancelled.insert(id)
+        let processes = activeProcesses[id] ?? []
+        processLock.unlock()
+
+        for process in processes where process.isRunning {
+            process.terminate()
+        }
+
+        DispatchQueue.main.async {
+            self.updateTransferStatus(id, status: .cancelled, error: nil)
+        }
     }
 
     func listFiles(at path: String, location: FileLocation, completion: @escaping (Result<[RemoteFile], Error>) -> Void) {
@@ -170,10 +231,12 @@ class SFTPService: ObservableObject {
     }
 
     private func listRemoteFiles(at path: String, profile: SSHProfile, completion: @escaping (Result<[RemoteFile], Error>) -> Void) {
-        var arguments = buildSSHArgsForList(profile: profile)
+        let auth = sshAuth(for: profile)
+        var arguments = auth.extraOptions
+        arguments.append(contentsOf: buildSSHArgsForList(profile: profile))
         arguments.append(buildRemoteListCommand(path: path))
 
-        let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments)
+        let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments, environment: auth.environment)
 
         processRunner.run(launch) { [weak self] result in
             guard let self = self else { return }
@@ -296,7 +359,8 @@ class SFTPService: ObservableObject {
             }
 
         case .server(let profile):
-            var arguments = ["-o", "BatchMode=yes"]
+            let auth = sshAuth(for: profile)
+            var arguments = auth.extraOptions
 
             if !profile.username.isEmpty {
                 arguments.append("\(profile.username)@\(profile.host)")
@@ -314,7 +378,7 @@ class SFTPService: ObservableObject {
 
             arguments.append("stat -c%s '\(path)' 2>/dev/null || stat -f%z '\(path)'")
 
-            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments)
+            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments, environment: auth.environment)
 
             processRunner.run(launch) { result in
                 switch result {
@@ -406,34 +470,77 @@ class SFTPService: ObservableObject {
     }
 
     private func uploadToServer(_ transfer: FileTransfer, profile: SSHProfile) {
-        let launch = buildSCPUploadLaunch(for: transfer, profile: profile)
-        processRunner.run(launch) { [weak self] result in
-            switch result {
-            case .success(let procResult):
-                if procResult.isSuccess {
-                    self?.updateTransferStatus(transfer.id, status: .completed)
-                } else {
-                    self?.updateTransferStatus(transfer.id, status: .failed, error: "Transfer failed")
-                }
-            case .failure(let error):
-                self?.updateTransferStatus(transfer.id, status: .failed, error: error.localizedDescription)
-            }
-        }
+        runCancellableSCP(launch: applySSHAuth(to: buildSCPUploadLaunch(for: transfer, profile: profile), profile: profile),
+                          transferID: transfer.id)
     }
 
     private func downloadFromServer(_ transfer: FileTransfer, profile: SSHProfile) {
-        let launch = buildSCPDownloadLaunch(for: transfer, profile: profile)
-        processRunner.run(launch) { [weak self] result in
-            switch result {
-            case .success(let procResult):
-                if procResult.isSuccess {
-                    self?.updateTransferStatus(transfer.id, status: .completed)
-                } else {
-                    self?.updateTransferStatus(transfer.id, status: .failed, error: "Transfer failed")
+        runCancellableSCP(launch: applySSHAuth(to: buildSCPDownloadLaunch(for: transfer, profile: profile), profile: profile),
+                          transferID: transfer.id)
+    }
+
+    /// Returns a new ProcessLaunch with auth options prepended and the
+    /// askpass env vars (if any) attached.
+    private func applySSHAuth(to launch: ProcessLaunch, profile: SSHProfile) -> ProcessLaunch {
+        let auth = sshAuth(for: profile)
+        return ProcessLaunch(
+            launchPath: launch.launchPath,
+            arguments: auth.extraOptions + launch.arguments,
+            stdinData: launch.stdinData,
+            environment: auth.environment
+        )
+    }
+
+    private func runCancellableSCP(launch: ProcessLaunch, transferID: UUID) {
+        if wasCancelled(transferID) { return }
+
+        let task = Process()
+        task.launchPath = launch.launchPath
+        task.arguments = launch.arguments
+        if let extra = launch.environment {
+            var merged = ProcessInfo.processInfo.environment
+            for (k, v) in extra { merged[k] = v }
+            task.environment = merged
+        }
+
+        let stderrPipe = Pipe()
+        task.standardError = stderrPipe
+        task.standardOutput = Pipe()
+
+        task.terminationHandler = { [weak self] process in
+            guard let self = self else { return }
+            self.unregisterProcesses(for: transferID)
+
+            if self.wasCancelled(transferID) {
+                DispatchQueue.main.async {
+                    self.updateTransferStatus(transferID, status: .cancelled)
                 }
-            case .failure(let error):
-                self?.updateTransferStatus(transfer.id, status: .failed, error: error.localizedDescription)
+                return
             }
+
+            if process.terminationStatus == 0 {
+                DispatchQueue.main.async {
+                    self.updateTransferStatus(transferID, status: .completed)
+                }
+            } else {
+                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                let message = stderr.isEmpty
+                    ? "Transfer failed (exit code: \(process.terminationStatus))"
+                    : stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                DispatchQueue.main.async {
+                    self.updateTransferStatus(transferID, status: .failed, error: message)
+                }
+            }
+        }
+
+        registerProcess(task, for: transferID)
+
+        do {
+            try task.run()
+        } catch {
+            unregisterProcesses(for: transferID)
+            updateTransferStatus(transferID, status: .failed, error: error.localizedDescription)
         }
     }
 
@@ -506,8 +613,9 @@ class SFTPService: ObservableObject {
         updateTransferStatus(transfer.id, status: .transferring)
 
         let sourceCommand = buildServerToServerSourceCommand(for: transfer)
+        let sourceAuth = sshAuth(for: sourceProfile)
 
-        var sourceArgs: [String] = []
+        var sourceArgs: [String] = sourceAuth.extraOptions
         sourceArgs.append(contentsOf: ["-o", "ConnectTimeout=10"])
         sourceArgs.append(contentsOf: ["-o", "StrictHostKeyChecking=no"])
         sourceArgs.append(contentsOf: ["-o", "UserKnownHostsFile=/dev/null"])
@@ -536,8 +644,14 @@ class SFTPService: ObservableObject {
         let sourceTask = Process()
         sourceTask.launchPath = "/usr/bin/ssh"
         sourceTask.arguments = sourceArgs
+        if let env = sourceAuth.environment {
+            var merged = ProcessInfo.processInfo.environment
+            for (k, v) in env { merged[k] = v }
+            sourceTask.environment = merged
+        }
 
-        var destArgs: [String] = []
+        let destAuth = sshAuth(for: destProfile)
+        var destArgs: [String] = destAuth.extraOptions
         destArgs.append(contentsOf: ["-o", "ConnectTimeout=10"])
         destArgs.append(contentsOf: ["-o", "StrictHostKeyChecking=no"])
         destArgs.append(contentsOf: ["-o", "UserKnownHostsFile=/dev/null"])
@@ -567,6 +681,11 @@ class SFTPService: ObservableObject {
         let destTask = Process()
         destTask.launchPath = "/usr/bin/ssh"
         destTask.arguments = destArgs
+        if let env = destAuth.environment {
+            var merged = ProcessInfo.processInfo.environment
+            for (k, v) in env { merged[k] = v }
+            destTask.environment = merged
+        }
 
         let pipe = Pipe()
         sourceTask.standardOutput = pipe
@@ -585,20 +704,38 @@ class SFTPService: ObservableObject {
 
         var sourceCompleted = false
         var transferFailed = false
+        let lock = NSLock()
+        let bothFinished: () -> Void = { [weak self] in
+            self?.unregisterProcesses(for: transfer.id)
+        }
 
         sourceTask.terminationHandler = { [weak self] process in
+            lock.lock()
             sourceCompleted = true
+            let alreadyFailed = transferFailed
+            lock.unlock()
+
+            guard let self = self else { return }
+
+            if self.wasCancelled(transfer.id) {
+                if destTask.isRunning { destTask.terminate() }
+                return
+            }
 
             if process.terminationStatus != 0 {
                 let errorData = sourceErrorPipe.fileHandleForReading.readDataToEndOfFile()
                 let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
                 print("DEBUG: Source SSH failed with exit code: \(process.terminationStatus)")
 
-                if !transferFailed {
-                    transferFailed = true
+                lock.lock()
+                let shouldReport = !alreadyFailed
+                transferFailed = true
+                lock.unlock()
+
+                if shouldReport {
                     DispatchQueue.main.async {
                         let errorMsg = errorOutput.isEmpty ? "SSH connection failed (exit code: \(process.terminationStatus))" : errorOutput
-                        self?.updateTransferStatus(transfer.id, status: .failed, error: "Source read failed: \(errorMsg)")
+                        self.updateTransferStatus(transfer.id, status: .failed, error: "Source read failed: \(errorMsg)")
                     }
                 }
 
@@ -609,30 +746,49 @@ class SFTPService: ObservableObject {
         }
 
         destTask.terminationHandler = { [weak self] process in
+            guard let self = self else { return }
+            bothFinished()
+
+            if self.wasCancelled(transfer.id) {
+                DispatchQueue.main.async {
+                    self.updateTransferStatus(transfer.id, status: .cancelled)
+                }
+                return
+            }
+
+            lock.lock()
+            let alreadyFailed = transferFailed
+            let srcDone = sourceCompleted
+            lock.unlock()
+
             if process.terminationStatus != 0 {
                 let errorData = destErrorPipe.fileHandleForReading.readDataToEndOfFile()
                 let errorOutput = String(data: errorData, encoding: .utf8) ?? "Unknown error"
                 print("DEBUG: Destination SSH failed with exit code: \(process.terminationStatus)")
 
-                if !transferFailed {
-                    transferFailed = true
+                if !alreadyFailed {
+                    lock.lock(); transferFailed = true; lock.unlock()
                     DispatchQueue.main.async {
                         let errorMsg = errorOutput.isEmpty ? "SSH connection failed (exit code: \(process.terminationStatus))" : errorOutput
-                        self?.updateTransferStatus(transfer.id, status: .failed, error: "Destination write failed: \(errorMsg)")
+                        self.updateTransferStatus(transfer.id, status: .failed, error: "Destination write failed: \(errorMsg)")
                     }
                 }
-            } else if sourceCompleted && !transferFailed {
+            } else if srcDone && !alreadyFailed {
                 print("DEBUG: Server-to-server transfer completed successfully")
                 DispatchQueue.main.async {
-                    self?.updateTransferStatus(transfer.id, status: .completed)
+                    self.updateTransferStatus(transfer.id, status: .completed)
                 }
             }
         }
+
+        registerProcess(sourceTask, for: transfer.id)
+        registerProcess(destTask, for: transfer.id)
 
         do {
             try sourceTask.run()
             try destTask.run()
         } catch {
+            unregisterProcesses(for: transfer.id)
             print("DEBUG: Failed to start SSH tunnel: \(error)")
             updateTransferStatus(transfer.id, status: .failed, error: "Failed to start transfer: \(error.localizedDescription)")
         }
@@ -665,7 +821,8 @@ class SFTPService: ObservableObject {
             }
 
         case .server(let profile):
-            var arguments = ["-o", "BatchMode=yes"]
+            let auth = sshAuth(for: profile)
+            var arguments = auth.extraOptions
 
             if !profile.username.isEmpty {
                 arguments.append("\(profile.username)@\(profile.host)")
@@ -683,7 +840,7 @@ class SFTPService: ObservableObject {
 
             arguments.append("mkdir -p '\(path)'")
 
-            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments)
+            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments, environment: auth.environment)
 
             processRunner.run(launch) { result in
                 switch result {
@@ -707,7 +864,8 @@ class SFTPService: ObservableObject {
             }
 
         case .server(let profile):
-            var arguments: [String] = []
+            let auth = sshAuth(for: profile)
+            var arguments = auth.extraOptions
 
             arguments.append(contentsOf: ["-o", "ConnectTimeout=10"])
             arguments.append(contentsOf: ["-o", "StrictHostKeyChecking=no"])
@@ -734,7 +892,7 @@ class SFTPService: ObservableObject {
 
             arguments.append(buildDeleteCommand(path: path))
 
-            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments)
+            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments, environment: auth.environment)
 
             processRunner.run(launch) { result in
                 switch result {
@@ -743,6 +901,59 @@ class SFTPService: ObservableObject {
                 case .failure:
                     completion(false)
                 }
+            }
+        }
+    }
+
+    // MARK: - Existence checks
+
+    func buildExistsCommand(paths: [String]) -> String {
+        // Emits one line per path: `1|<path>` or `0|<path>` (idx prefix avoids collisions in parsing)
+        var script = "set +o noglob 2>/dev/null || true\n"
+        for (index, path) in paths.enumerated() {
+            let expanded = expandTildeForShell(path)
+            let escaped = escapePathForShellSingleQuote(expanded)
+            script += "if [ -e '\(escaped)' ]; then echo '\(index)|1'; else echo '\(index)|0'; fi\n"
+        }
+        return script
+    }
+
+    func fileExistsBatch(paths: [String], location: FileLocation, completion: @escaping ([String: Bool]) -> Void) {
+        guard !paths.isEmpty else { completion([:]); return }
+
+        switch location {
+        case .localhost:
+            var results: [String: Bool] = [:]
+            for path in paths {
+                let resolved = (path as NSString).expandingTildeInPath
+                results[path] = FileManager.default.fileExists(atPath: resolved)
+            }
+            completion(results)
+
+        case .server(let profile):
+            let auth = sshAuth(for: profile)
+            var arguments = auth.extraOptions
+            arguments.append(contentsOf: buildSSHArgsForList(profile: profile))
+            arguments.append(buildExistsCommand(paths: paths))
+
+            let launch = ProcessLaunch(launchPath: "/usr/bin/ssh", arguments: arguments, environment: auth.environment)
+            processRunner.run(launch) { result in
+                var output: [String: Bool] = [:]
+                if case .success(let procResult) = result, procResult.isSuccess {
+                    let lines = procResult.stdoutString.split(separator: "\n", omittingEmptySubsequences: true)
+                    for line in lines {
+                        let parts = line.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+                        guard parts.count == 2,
+                              let index = Int(parts[0]),
+                              index >= 0, index < paths.count else { continue }
+                        output[paths[index]] = (parts[1] == "1")
+                    }
+                }
+                // Default any path not seen to false (treat as no conflict)
+                for path in paths where output[path] == nil {
+                    output[path] = false
+                }
+                completion(output)
             }
         }
     }

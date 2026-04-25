@@ -115,12 +115,17 @@ func makeStubITerm2Service(
     scriptRunner: AppleScriptRunner? = nil,
     processRunner: ProcessRunner? = nil,
     fileStore: ProfileFileStore? = nil,
+    passwordHelper: SSHPasswordHelper? = nil,
     root: URL = URL(fileURLWithPath: "/tmp/iTermGUI-dyn")
 ) -> ITerm2Service {
     ITerm2Service(
         dynamicProfilesRoot: root,
         fileStore: fileStore ?? InMemoryProfileFileStore(),
         scriptRunner: scriptRunner ?? FakeAppleScriptRunner(),
-        processRunner: processRunner ?? FakeProcessRunner()
+        processRunner: processRunner ?? FakeProcessRunner(),
+        passwordHelper: passwordHelper ?? SSHPasswordHelper(
+            rootDirectory: URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("itermgui-tests-\(UUID().uuidString)")
+        )
     )
 }

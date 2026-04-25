@@ -111,6 +111,67 @@ struct ITerm2ServiceBuildSSHCommandTests {
     }
 }
 
+@Suite("ITerm2Service.sshArguments")
+struct ITerm2ServiceSSHArgumentsTests {
+    private func service() -> ITerm2Service { makeStubITerm2Service() }
+
+    @Test func argsListProducesSameStringAsBuildSSHCommand() {
+        let profile = makeProfile(
+            host: "h", port: 2222, username: "u",
+            privateKeyPath: "/k",
+            jumpHost: "j",
+            localForwards: [PortForward(localPort: 8080, remoteHost: "r", remotePort: 80)],
+            remoteForwards: [PortForward(localPort: 9090, remoteHost: "api", remotePort: 9000)],
+            strictHostKeyChecking: false,
+            compression: true,
+            connectionTimeout: 15,
+            serverAliveInterval: 10
+        )
+        let svc = service()
+        let joined = (["ssh"] + svc.sshArguments(for: profile)).joined(separator: " ")
+        #expect(joined == svc.buildSSHCommand(from: profile))
+    }
+
+    @Test func portFlagSplitIntoTwoArgs() {
+        let profile = makeProfile(host: "h", port: 2022, username: "u")
+        let args = service().sshArguments(for: profile)
+        let pIndex = args.firstIndex(of: "-p")!
+        #expect(args[pIndex + 1] == "2022")
+    }
+}
+
+@Suite("ITerm2Service.createITerm2Profile password wrapper")
+struct ITerm2ServicePasswordWrapperTests {
+    @Test func bareSSHCommandWhenNoPasswordFile() {
+        let svc = makeStubITerm2Service()
+        let profile = makeProfile(host: "h", username: "u", authMethod: .password, password: "secret")
+        let dict = svc.createITerm2Profile(from: profile, passwordFile: nil)
+        let cmd = dict["Command"] as! String
+        #expect(cmd.hasPrefix("ssh "))
+        #expect(cmd.contains("SSH_ASKPASS") == false)
+    }
+
+    @Test func wrapperCommandWhenPasswordFileProvided() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("itermgui-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = SSHPasswordHelper(rootDirectory: root)
+        let svc = makeStubITerm2Service(passwordHelper: helper)
+
+        let profile = makeProfile(host: "h", username: "u", authMethod: .password, password: "secret")
+        let pwFile = try #require(helper.stagePassword("secret"))
+        let dict = svc.createITerm2Profile(from: profile, passwordFile: pwFile)
+
+        let cmd = dict["Command"] as! String
+        #expect(cmd.contains("/usr/bin/env"))
+        #expect(cmd.contains("SSH_ASKPASS_REQUIRE=force"))
+        #expect(cmd.contains(helper.scriptURL.path))
+        #expect(cmd.contains(pwFile.path))
+        #expect(cmd.contains("/usr/bin/ssh"))
+        #expect(cmd.contains("u@h"))
+    }
+}
+
 @Suite("ITerm2Service.buildTestConnectionLaunch")
 struct ITerm2TestConnectionLaunchTests {
     @Test func includesBatchModeAndConnectTimeout5() {

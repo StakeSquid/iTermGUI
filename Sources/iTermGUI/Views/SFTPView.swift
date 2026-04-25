@@ -1,1079 +1,999 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Models / Enums
+// MARK: - Sort helper
 
-enum FileSortOption: String, CaseIterable {
-    case name = "Name"
-    case size = "Size"
-    case date = "Date Modified"
-    case type = "Type"
+private extension RemoteFile {
+    var modifiedSortKey: Date { modifiedDate ?? .distantPast }
 }
 
-struct ColumnWidths: Equatable {
-    var name: CGFloat = 200
-    var size: CGFloat = 80
-    var permissions: CGFloat = 90
-    var date: CGFloat = 120
+// MARK: - Pane state
+
+private struct PaneState: Equatable {
+    var location: FileLocation = .localhost
+    var path: String
+    var files: [RemoteFile] = []
+    var selection: Set<RemoteFile.ID> = []
+    var sortOrder: [KeyPathComparator<RemoteFile>] = [
+        KeyPathComparator(\RemoteFile.name)
+    ]
+    var isLoading: Bool = false
+
+    var sortedFiles: [RemoteFile] {
+        let sorted = files.sorted(using: sortOrder)
+        return sorted.filter(\.isDirectory) + sorted.filter { !$0.isDirectory }
+    }
+
+    var selectedFiles: [RemoteFile] {
+        files.filter { selection.contains($0.id) }
+    }
+
+    var selectionSize: Int64 {
+        selectedFiles.reduce(0) { $0 + ($1.isDirectory ? 0 : $1.size) }
+    }
+
+    var isAtRoot: Bool { path == "/" || path == "~" }
 }
 
-// Which column is being resized
-enum ColumnKey { case name, size, permissions }
+private enum PaneSide: String { case left, right }
 
-// Resizing phases used by header and grip (internal so all types here can use it)
-enum ResizePhase { case start, change(CGFloat), end }
+private struct PendingDelete: Identifiable {
+    let id = UUID()
+    let side: PaneSide
+    let location: FileLocation
+    let files: [RemoteFile]
+}
 
-// MARK: - Main View
+// MARK: - Transfer intent / conflict batch
+
+private struct TransferIntent: Identifiable, Hashable {
+    let id = UUID()
+    let sourcePath: String
+    let sourceLocation: FileLocation
+    let destPath: String
+    let destLocation: FileLocation
+    let isDirectory: Bool
+    let name: String
+}
+
+private struct PendingConflictBatch {
+    var conflicts: [TransferIntent]
+    let refresh: () -> Void
+}
+
+private enum ConflictDecision {
+    case replace, skip, stop
+}
+
+// MARK: - Main view
 
 struct SFTPView: View {
-    @Environment(\.dismiss) var dismiss
-    @EnvironmentObject var profileManager: ProfileManager
+    @EnvironmentObject private var profileManager: ProfileManager
     @StateObject private var sftpService = SFTPService()
-    
-    @State private var leftLocation: FileLocation = .localhost
-    @State private var rightLocation: FileLocation = .localhost
-    
-    @State private var leftPath: String = NSHomeDirectory()
-    @State private var rightPath: String = NSHomeDirectory()
-    
-    @State private var leftFiles: [RemoteFile] = []
-    @State private var rightFiles: [RemoteFile] = []
-    
-    @State private var leftSelection: Set<RemoteFile> = []
-    @State private var rightSelection: Set<RemoteFile> = []
-    
-    @State private var leftSortOption: FileSortOption = .name
-    @State private var leftSortAscending = true
-    @State private var rightSortOption: FileSortOption = .name
-    @State private var rightSortAscending = true
-    
-    @State private var leftColumnWidths = ColumnWidths()
-    @State private var rightColumnWidths = ColumnWidths()
-    
-    @State private var isLoading = false
-    @State private var showError = false
-    @State private var errorMessage = ""
-    @State private var showDeleteConfirmation = false
-    @State private var filesToDelete: [(file: RemoteFile, location: FileLocation, isLeft: Bool)] = []
-    
+
     let initialProfile: SSHProfile?
-    
+
+    @State private var leftPane = PaneState(path: NSHomeDirectory())
+    @State private var rightPane = PaneState(path: NSHomeDirectory())
+
+    @State private var errorMessage: String?
+    @State private var pendingDelete: PendingDelete?
+    @State private var queueExpanded = false
+    @State private var pendingConflicts: PendingConflictBatch?
+    @State private var applyToAllConflicts = false
+
     init(profile: SSHProfile? = nil) {
         self.initialProfile = profile
     }
-    
+
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("SFTP File Transfer")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                
-                Spacer()
-                
-                if !sftpService.transfers.isEmpty {
-                    Text("\(sftpService.transfers.filter { $0.status == .transferring }.count) active transfers")
-                        .foregroundStyle(.secondary)
-                }
-                
-                Button(action: {
-                    if let window = NSApp.keyWindow { window.close() }
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Close SFTP Window")
+            HSplitView {
+                FilePane(
+                    side: .left,
+                    state: $leftPane,
+                    profiles: profileManager.profiles,
+                    counterpartLocation: rightPane.location,
+                    onReload: reloadLeft,
+                    onDelete: { files in
+                        pendingDelete = PendingDelete(side: .left, location: leftPane.location, files: files)
+                    },
+                    onTransferToOther: transferLeftToRight,
+                    onDrop: { items in handleDrop(into: .left, items: items) }
+                )
+                .frame(minWidth: 360, idealWidth: 560)
+
+                FilePane(
+                    side: .right,
+                    state: $rightPane,
+                    profiles: profileManager.profiles,
+                    counterpartLocation: leftPane.location,
+                    onReload: reloadRight,
+                    onDelete: { files in
+                        pendingDelete = PendingDelete(side: .right, location: rightPane.location, files: files)
+                    },
+                    onTransferToOther: transferRightToLeft,
+                    onDrop: { items in handleDrop(into: .right, items: items) }
+                )
+                .frame(minWidth: 360, idealWidth: 560)
             }
-            .padding()
-            
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
             Divider()
-            
-            // Main content
-            HStack(spacing: 0) {
-                // Left pane
-                VStack(spacing: 0) {
-                    FilePaneHeader(
-                        location: $leftLocation,
-                        path: $leftPath,
-                        profiles: profileManager.profiles,
-                        onLocationChange: { loadLeftPane() },
-                        onPathChange: { loadLeftPane() }
-                    )
-                    
-                    Divider()
-                    
-                    FilePaneContent(
-                        files: $leftFiles,
-                        selection: $leftSelection,
-                        currentPath: $leftPath,
-                        location: leftLocation,
-                        sortOption: $leftSortOption,
-                        sortAscending: $leftSortAscending,
-                        columnWidths: $leftColumnWidths,
-                        isLoading: isLoading,
-                        onNavigate: { path in
-                            leftPath = path
-                            loadLeftPane()
-                        },
-                        onRefresh: { loadLeftPane() },
-                        onDelete: { files in
-                            filesToDelete = files.map { ($0, leftLocation, true) }
-                            showDeleteConfirmation = true
-                        },
-                        onTransfer: { files in
-                            transferFromLeftPane(files)
-                        }
-                    )
-                }
-                .frame(minWidth: 400)
-                
+
+            SFTPStatusBar(
+                leftPane: leftPane,
+                rightPane: rightPane,
+                transfers: sftpService.transfers,
+                queueExpanded: $queueExpanded,
+                onTransferRight: { transferLeftToRight(leftPane.selectedFiles) },
+                onTransferLeft: { transferRightToLeft(rightPane.selectedFiles) }
+            )
+
+            if queueVisible {
                 Divider()
-                
-                // Transfer buttons
-                VStack(spacing: 20) {
-                    Button(action: transferLeftToRight) {
-                        Image(systemName: "arrow.right.circle.fill")
-                            .font(.title)
-                    }
-                    .disabled(leftSelection.isEmpty)
-                    .help("Transfer selected files to right")
-                    
-                    Button(action: transferRightToLeft) {
-                        Image(systemName: "arrow.left.circle.fill")
-                            .font(.title)
-                    }
-                    .disabled(rightSelection.isEmpty)
-                    .help("Transfer selected files to left")
-                }
-                .padding()
-                .frame(width: 80)
-                
-                Divider()
-                
-                // Right pane
-                VStack(spacing: 0) {
-                    FilePaneHeader(
-                        location: $rightLocation,
-                        path: $rightPath,
-                        profiles: profileManager.profiles,
-                        onLocationChange: { loadRightPane() },
-                        onPathChange: { loadRightPane() }
-                    )
-                    
-                    Divider()
-                    
-                    FilePaneContent(
-                        files: $rightFiles,
-                        selection: $rightSelection,
-                        currentPath: $rightPath,
-                        location: rightLocation,
-                        sortOption: $rightSortOption,
-                        sortAscending: $rightSortAscending,
-                        columnWidths: $rightColumnWidths,
-                        isLoading: isLoading,
-                        onNavigate: { path in
-                            rightPath = path
-                            loadRightPane()
-                        },
-                        onRefresh: { loadRightPane() },
-                        onDelete: { files in
-                            filesToDelete = files.map { ($0, rightLocation, false) }
-                            showDeleteConfirmation = true
-                        },
-                        onTransfer: { files in
-                            transferFromRightPane(files)
-                        }
-                    )
-                }
-                .frame(minWidth: 400)
-            }
-            
-            Divider()
-            
-            // Transfer queue
-            if !sftpService.transfers.isEmpty {
-                TransferQueueView(transfers: sftpService.transfers)
-                    .frame(height: 150)
+                TransferQueueView(
+                    transfers: sftpService.transfers,
+                    onCancel: { sftpService.cancelTransfer($0) },
+                    onCancelAll: cancelAllActive
+                )
+                .frame(height: 180)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .frame(minWidth: 900, idealWidth: 1200, maxWidth: .infinity,
-               minHeight: 600, idealHeight: 800, maxHeight: .infinity)
-        .onAppear { setupInitialState() }
-        .alert("Error", isPresented: $showError) {
-            Button("OK") { }
-        } message: { Text(errorMessage) }
-        .alert("Delete Files", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                performDelete()
-            }
+               minHeight: 560, idealHeight: 760, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.18), value: queueVisible)
+        .onAppear(perform: setupInitialState)
+        .alert(
+            "Error",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK") { errorMessage = nil }
         } message: {
-            Text("Are you sure you want to delete \(filesToDelete.count) selected item(s)? This action cannot be undone.")
+            Text(errorMessage ?? "")
         }
-        .onExitCommand {
-            if let window = NSApp.keyWindow { window.close() }
+        .alert(
+            deleteAlertTitle,
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+            Button("Delete", role: .destructive) { performDelete() }
+        } message: {
+            Text("This action cannot be undone.")
         }
+        .sheet(isPresented: Binding(
+            get: { pendingConflicts != nil },
+            set: { if !$0 { pendingConflicts = nil } }
+        )) {
+            if let batch = pendingConflicts, let head = batch.conflicts.first {
+                ConflictResolutionSheet(
+                    intent: head,
+                    remaining: batch.conflicts.count,
+                    applyToAll: $applyToAllConflicts,
+                    onResolve: resolveConflict
+                )
+            }
+        }
+        .onExitCommand { NSApp.keyWindow?.close() }
     }
-    
+
+    private var queueVisible: Bool {
+        queueExpanded && !sftpService.transfers.isEmpty
+    }
+
+    private var deleteAlertTitle: String {
+        let count = pendingDelete?.files.count ?? 0
+        return count == 1 ? "Delete 1 item?" : "Delete \(count) items?"
+    }
+
+    // MARK: - Lifecycle
+
     private func setupInitialState() {
         if let profile = initialProfile {
-            rightLocation = .server(profile)
-            rightPath = "~"
+            rightPane.location = .server(profile)
+            rightPane.path = "~"
         }
-        loadLeftPane()
-        loadRightPane()
+        reloadLeft()
+        reloadRight()
     }
-    
-    private func loadLeftPane() {
-        isLoading = true
-        sftpService.listFiles(at: leftPath, location: leftLocation) { result in
-            isLoading = false
+
+    // MARK: - Reload
+
+    private func reloadLeft() { reload(side: .left) }
+    private func reloadRight() { reload(side: .right) }
+
+    private func reload(side: PaneSide) {
+        let snapshot = (side == .left) ? leftPane : rightPane
+        switch side {
+        case .left:  leftPane.isLoading = true
+        case .right: rightPane.isLoading = true
+        }
+
+        sftpService.listFiles(at: snapshot.path, location: snapshot.location) { result in
             switch result {
             case .success(let files):
-                leftFiles = files
-                leftSelection.removeAll()
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-                showError = true
-            }
-        }
-    }
-    
-    private func loadRightPane() {
-        isLoading = true
-        sftpService.listFiles(at: rightPath, location: rightLocation) { result in
-            isLoading = false
-            switch result {
-            case .success(let files):
-                rightFiles = files
-                rightSelection.removeAll()
-            case .failure(let error):
-                errorMessage = error.localizedDescription
-                showError = true
-            }
-        }
-    }
-    
-    private func transferLeftToRight() {
-        for file in leftSelection {
-            let destPath = rightPath.hasSuffix("/") ?
-                "\(rightPath)\(file.name)" : "\(rightPath)/\(file.name)"
-            
-            sftpService.transferFile(
-                from: file.path,
-                sourceLocation: leftLocation,
-                to: destPath,
-                destinationLocation: rightLocation,
-                isDirectory: file.isDirectory
-            )
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { loadRightPane() }
-    }
-    
-    private func transferRightToLeft() {
-        for file in rightSelection {
-            let destPath = leftPath.hasSuffix("/") ?
-                "\(leftPath)\(file.name)" : "\(leftPath)/\(file.name)"
-            
-            sftpService.transferFile(
-                from: file.path,
-                sourceLocation: rightLocation,
-                to: destPath,
-                destinationLocation: leftLocation,
-                isDirectory: file.isDirectory
-            )
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { loadLeftPane() }
-    }
-    
-    private func transferFromLeftPane(_ files: [RemoteFile]) {
-        // Transfer from left pane to right pane
-        for file in files {
-            let destPath = rightPath.hasSuffix("/") ?
-                "\(rightPath)\(file.name)" : "\(rightPath)/\(file.name)"
-            
-            sftpService.transferFile(
-                from: file.path,
-                sourceLocation: leftLocation,
-                to: destPath,
-                destinationLocation: rightLocation,
-                isDirectory: file.isDirectory
-            )
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { loadRightPane() }
-    }
-    
-    private func transferFromRightPane(_ files: [RemoteFile]) {
-        // Transfer from right pane to left pane
-        for file in files {
-            let destPath = leftPath.hasSuffix("/") ?
-                "\(leftPath)\(file.name)" : "\(leftPath)/\(file.name)"
-            
-            sftpService.transferFile(
-                from: file.path,
-                sourceLocation: rightLocation,
-                to: destPath,
-                destinationLocation: leftLocation,
-                isDirectory: file.isDirectory
-            )
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { loadLeftPane() }
-    }
-    
-    private func performDelete() {
-        let group = DispatchGroup()
-        
-        for item in filesToDelete {
-            group.enter()
-            sftpService.deleteFile(at: item.file.path, location: item.location) { success in
-                if !success {
-                    self.errorMessage = "Failed to delete \(item.file.name)"
-                    self.showError = true
+                switch side {
+                case .left:
+                    leftPane.files = files
+                    leftPane.selection.removeAll()
+                    leftPane.isLoading = false
+                case .right:
+                    rightPane.files = files
+                    rightPane.selection.removeAll()
+                    rightPane.isLoading = false
                 }
+            case .failure(let error):
+                switch side {
+                case .left:  leftPane.isLoading = false
+                case .right: rightPane.isLoading = false
+                }
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Transfer
+
+    private func transferLeftToRight(_ files: [RemoteFile]) {
+        transfer(files, sourcePath: leftPane.path, sourceLocation: leftPane.location,
+                 destPath: rightPane.path, destLocation: rightPane.location,
+                 refresh: reloadRight)
+    }
+
+    private func transferRightToLeft(_ files: [RemoteFile]) {
+        transfer(files, sourcePath: rightPane.path, sourceLocation: rightPane.location,
+                 destPath: leftPane.path, destLocation: leftPane.location,
+                 refresh: reloadLeft)
+    }
+
+    private func transfer(_ files: [RemoteFile],
+                          sourcePath: String, sourceLocation: FileLocation,
+                          destPath: String, destLocation: FileLocation,
+                          refresh: @escaping () -> Void) {
+        guard !files.isEmpty else { return }
+        let intents = files.map { file in
+            TransferIntent(
+                sourcePath: file.path,
+                sourceLocation: sourceLocation,
+                destPath: joinPath(destPath, file.name),
+                destLocation: destLocation,
+                isDirectory: file.isDirectory,
+                name: file.name
+            )
+        }
+        beginBatch(intents, refresh: refresh)
+    }
+
+    // MARK: - Drop
+
+    private func handleDrop(into destSide: PaneSide, items: [RemoteFileDragItem]) {
+        let foreign = items.filter { $0.originSide != destSide.rawValue }
+        guard !foreign.isEmpty else { return }
+
+        let sourceSide: PaneSide = (destSide == .left) ? .right : .left
+        let sourceLocation = (sourceSide == .left) ? leftPane.location : rightPane.location
+        let destPane = (destSide == .left) ? leftPane : rightPane
+        let refresh: () -> Void = (destSide == .left) ? reloadLeft : reloadRight
+
+        let intents = foreign.map { item in
+            TransferIntent(
+                sourcePath: item.path,
+                sourceLocation: sourceLocation,
+                destPath: joinPath(destPane.path, item.name),
+                destLocation: destPane.location,
+                isDirectory: item.isDirectory,
+                name: item.name
+            )
+        }
+        beginBatch(intents, refresh: refresh)
+    }
+
+    // MARK: - Batch with conflict check
+
+    private func beginBatch(_ intents: [TransferIntent], refresh: @escaping () -> Void) {
+        guard let destLocation = intents.first?.destLocation else { return }
+
+        sftpService.fileExistsBatch(paths: intents.map(\.destPath), location: destLocation) { existence in
+            var clean: [TransferIntent] = []
+            var conflicts: [TransferIntent] = []
+            for intent in intents {
+                if existence[intent.destPath] == true {
+                    conflicts.append(intent)
+                } else {
+                    clean.append(intent)
+                }
+            }
+
+            for intent in clean { enqueueTransfer(intent) }
+
+            if conflicts.isEmpty {
+                if !clean.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: refresh)
+                }
+            } else {
+                applyToAllConflicts = false
+                pendingConflicts = PendingConflictBatch(conflicts: conflicts, refresh: refresh)
+            }
+        }
+    }
+
+    private func enqueueTransfer(_ intent: TransferIntent) {
+        sftpService.transferFile(
+            from: intent.sourcePath,
+            sourceLocation: intent.sourceLocation,
+            to: intent.destPath,
+            destinationLocation: intent.destLocation,
+            isDirectory: intent.isDirectory
+        )
+    }
+
+    private func resolveConflict(_ decision: ConflictDecision) {
+        guard var batch = pendingConflicts else { return }
+
+        if decision == .stop {
+            pendingConflicts = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: batch.refresh)
+            return
+        }
+
+        let useAll = applyToAllConflicts
+        let toResolve: [TransferIntent]
+        if useAll {
+            toResolve = batch.conflicts
+            batch.conflicts.removeAll()
+        } else {
+            toResolve = [batch.conflicts.removeFirst()]
+        }
+
+        for intent in toResolve {
+            switch decision {
+            case .replace:
+                sftpService.deleteFile(at: intent.destPath, location: intent.destLocation) { _ in
+                    DispatchQueue.main.async {
+                        enqueueTransfer(intent)
+                    }
+                }
+            case .skip:
+                break
+            case .stop:
+                break
+            }
+        }
+
+        if batch.conflicts.isEmpty {
+            pendingConflicts = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: batch.refresh)
+        } else {
+            pendingConflicts = batch
+        }
+    }
+
+    // MARK: - Cancel
+
+    private func cancelAllActive() {
+        let active = sftpService.transfers
+            .filter { $0.status == .transferring || $0.status == .pending }
+            .map(\.id)
+        for id in active {
+            sftpService.cancelTransfer(id)
+        }
+    }
+
+    // MARK: - Delete
+
+    private func performDelete() {
+        guard let pending = pendingDelete else { return }
+        let group = DispatchGroup()
+        var failures: [String] = []
+
+        for file in pending.files {
+            group.enter()
+            sftpService.deleteFile(at: file.path, location: pending.location) { ok in
+                if !ok { failures.append(file.name) }
                 group.leave()
             }
         }
-        
+
         group.notify(queue: .main) {
-            // Refresh the appropriate panes after all deletions complete
-            let needsLeftRefresh = self.filesToDelete.contains(where: { $0.isLeft })
-            let needsRightRefresh = self.filesToDelete.contains(where: { !$0.isLeft })
-            
-            if needsLeftRefresh {
-                self.loadLeftPane()
+            if !failures.isEmpty {
+                errorMessage = "Failed to delete: \(failures.joined(separator: ", "))"
             }
-            if needsRightRefresh {
-                self.loadRightPane()
+            switch pending.side {
+            case .left: reloadLeft()
+            case .right: reloadRight()
             }
-            
-            self.filesToDelete.removeAll()
+            pendingDelete = nil
         }
     }
 }
 
-// MARK: - Header (Path + Location)
+// MARK: - File pane
 
-struct FilePaneHeader: View {
-    @Binding var location: FileLocation
-    @Binding var path: String
+private struct FilePane: View {
+    let side: PaneSide
+    @Binding var state: PaneState
     let profiles: [SSHProfile]
-    let onLocationChange: () -> Void
-    let onPathChange: () -> Void
-    
+    let counterpartLocation: FileLocation
+    let onReload: () -> Void
+    let onDelete: ([RemoteFile]) -> Void
+    let onTransferToOther: ([RemoteFile]) -> Void
+    let onDrop: ([RemoteFileDragItem]) -> Void
+
+    @State private var isDropTargeted = false
+
     var body: some View {
-        VStack(spacing: 8) {
-            // Location selector
-            HStack {
-                Menu {
-                    Button("Localhost") {
-                        location = .localhost
-                        path = NSHomeDirectory()
-                        onLocationChange()
-                    }
-                    
-                    Divider()
-                    
-                    ForEach(profiles) { profile in
-                        Button(profile.name) {
-                            location = .server(profile)
-                            path = "~"
-                            onLocationChange()
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Image(systemName: location.displayName == "Localhost" ? "laptopcomputer" : "server.rack")
-                        Text(location.displayName)
-                        Image(systemName: "chevron.down")
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .glassBackground(in: .rect(cornerRadius: 5), fallback: .thinMaterial)
-                }
-                .menuStyle(.borderlessButton)
-                
-                Spacer()
+        VStack(spacing: 0) {
+            paneHeader
+            Divider()
+            tableContent
+        }
+    }
+
+    // MARK: header
+
+    private var paneHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LocationMenu(location: state.location, profiles: profiles) { newLocation in
+                state.location = newLocation
+                state.path = (newLocation == .localhost) ? NSHomeDirectory() : "~"
+                state.selection.removeAll()
+                onReload()
             }
-            
-            // Path input
-            HStack(spacing: 6) {
-                TextField("Path", text: $path, onCommit: onPathChange)
+
+            HStack(spacing: 4) {
+                Button(action: navigateUp) {
+                    Image(systemName: "arrow.up")
+                }
+                .help("Up one directory")
+                .disabled(state.isAtRoot)
+
+                Button(action: navigateHome) {
+                    Image(systemName: "house")
+                }
+                .help("Home")
+
+                TextField("Path", text: $state.path)
                     .textFieldStyle(.roundedBorder)
-                
-                Button(action: onPathChange) {
+                    .onSubmit(onReload)
+
+                Button(action: onReload) {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.borderless)
+                .help("Refresh")
             }
+            .buttonStyle(.borderless)
+            .controlSize(.regular)
         }
-        .padding(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.bar)
     }
-}
 
-// MARK: - File Pane Content (Table)
+    // MARK: table
 
-struct FilePaneContent: View {
-    @Binding var files: [RemoteFile]
-    @Binding var selection: Set<RemoteFile>
-    @Binding var currentPath: String
-    let location: FileLocation
-    @Binding var sortOption: FileSortOption
-    @Binding var sortAscending: Bool
-    @Binding var columnWidths: ColumnWidths
-    let isLoading: Bool
-    let onNavigate: (String) -> Void
-    let onRefresh: () -> Void
-    let onDelete: ([RemoteFile]) -> Void
-    let onTransfer: ([RemoteFile]) -> Void
-    
-    // Layout constants
-    private let iconWidth: CGFloat = 28
-    private let gripWidth: CGFloat = 8
-    private let rowHeight: CGFloat = 24
-    private let headerHeight: CGFloat = 30
-    
-    // Resize ranges
-    private let nameRange: ClosedRange<CGFloat> = 120...600
-    private let sizeRange: ClosedRange<CGFloat> = 60...160
-    private let permRange: ClosedRange<CGFloat> = 70...180
-    private let dateRange: ClosedRange<CGFloat> = 110...260 // no resizer for date, kept for consistency
-    
-    // Transient drag state to prevent flicker (commit only on .end)
-    @State private var activeDrag: (key: ColumnKey, start: CGFloat, delta: CGFloat)?
-    // Live guideline position during resize (in content coordinates).
-    @State private var guideX: CGFloat?
-    
-    private var totalContentWidth: CGFloat {
-        // icon + name + grip + size + grip + permissions + grip + date
-        iconWidth
-        + columnWidths.name + gripWidth
-        + columnWidths.size + gripWidth
-        + columnWidths.permissions + gripWidth
-        + columnWidths.date
-    }
-    
-    var sortedFiles: [RemoteFile] {
-        files.sorted { a, b in
-            if a.isDirectory != b.isDirectory { return a.isDirectory } // dirs first
-            
-            let asc: Bool
-            switch sortOption {
-            case .name:
-                asc = a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            case .size:
-                asc = a.size < b.size
-            case .date:
-                let d1 = a.modifiedDate ?? .distantPast
-                let d2 = b.modifiedDate ?? .distantPast
-                asc = d1 < d2
-            case .type:
-                let e1 = URL(fileURLWithPath: a.name).pathExtension
-                let e2 = URL(fileURLWithPath: b.name).pathExtension
-                if e1 == e2 {
-                    asc = a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-                } else {
-                    asc = e1.localizedCaseInsensitiveCompare(e2) == .orderedAscending
+    private var tableContent: some View {
+        Table(state.sortedFiles, selection: $state.selection, sortOrder: $state.sortOrder) {
+            TableColumn("Name", value: \.name) { file in
+                HStack(spacing: 6) {
+                    Image(systemName: file.isDirectory ? "folder.fill" : "doc")
+                        .foregroundStyle(file.isDirectory ? Color.accentColor : Color.secondary)
+                    Text(file.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
+                .draggable(containerItemID: file.id)
             }
-            return sortAscending ? asc : !asc
+            .width(min: 160, ideal: 260)
+
+            TableColumn("Size", value: \.size) { file in
+                Text(file.sizeString)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .width(min: 60, ideal: 80, max: 140)
+
+            TableColumn("Permissions") { file in
+                Text(file.permissions)
+                    .foregroundStyle(.secondary)
+                    .font(.system(.caption, design: .monospaced))
+            }
+            .width(min: 80, ideal: 100, max: 140)
+
+            TableColumn("Modified", value: \.modifiedSortKey) { file in
+                Text(file.dateString)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .width(min: 120, ideal: 160, max: 220)
         }
-    }
-    
-    var body: some View {
-        if isLoading {
-            VStack {
-                Spacer()
-                ProgressView("Loading...")
-                Spacer()
-            }
-        } else {
-            // Horizontal scroll if columns exceed pane width
-            ScrollView(.horizontal, showsIndicators: true) {
-                VStack(spacing: 0) {
-                    // Header
-                    FileListHeader(
-                        sortOption: $sortOption,
-                        sortAscending: $sortAscending,
-                        columnWidths: columnWidths,
-                        iconWidth: iconWidth,
-                        gripWidth: gripWidth,
-                        height: headerHeight,
-                        onResizePhase: handleResizePhase // callback for drag events
-                    )
-                    .frame(width: totalContentWidth, height: headerHeight)
-                    .glassBackground(in: Rectangle(), fallback: .regularMaterial)
-                    .transaction { $0.disablesAnimations = true }
-                    
-                    Divider()
-                    
-                    // Rows
-                    ScrollView(.vertical, showsIndicators: true) {
-                        LazyVStack(spacing: 0) {
-                            // Parent directory entry (no need to fabricate a RemoteFile)
-                            // Show parent for all paths except root (/) and home (~)
-                            if currentPath != "/" && currentPath != "~" {
-                                FileRow(
-                                    iconWidth: iconWidth,
-                                    heights: rowHeight,
-                                    nameWidth: columnWidths.name,
-                                    sizeWidth: columnWidths.size,
-                                    permWidth: columnWidths.permissions,
-                                    dateWidth: columnWidths.date,
-                                    file: nil,
-                                    isParentRow: true,
-                                    isSelected: false,
-                                    onDoubleClick: {
-                                        let parentPath = getParentPath(from: currentPath)
-                                        onNavigate(parentPath)
-                                    }
-                                )
-                            }
-                            
-                            ForEach(sortedFiles) { file in
-                                FileRow(
-                                    iconWidth: iconWidth,
-                                    heights: rowHeight,
-                                    nameWidth: columnWidths.name,
-                                    sizeWidth: columnWidths.size,
-                                    permWidth: columnWidths.permissions,
-                                    dateWidth: columnWidths.date,
-                                    file: file,
-                                    isParentRow: false,
-                                    isSelected: selection.contains(file),
-                                    onDoubleClick: {
-                                        if file.isDirectory { onNavigate(file.path) }
-                                    }
-                                )
-                                .background(selection.contains(file) ? Color.accentColor.opacity(0.18) : Color.clear)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    if NSEvent.modifierFlags.contains(.command) {
-                                        if selection.contains(file) { selection.remove(file) } else { selection.insert(file) }
-                                    } else {
-                                        selection = [file]
-                                    }
-                                }
-                                .transaction { $0.disablesAnimations = true }
-                            }
-                        }
-                        .frame(width: totalContentWidth)
-                    }
-                    .scrollDisabled(activeDrag != nil) // smoother drags
-                    .transaction { $0.disablesAnimations = true }
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .contextMenu(forSelectionType: RemoteFile.ID.self) { ids in
+            let files = state.files.filter { ids.contains($0.id) }
+            if !files.isEmpty {
+                Button {
+                    onTransferToOther(files)
+                } label: {
+                    Label("Send to \(counterpartLocation.displayName)",
+                          systemImage: "arrow.right.arrow.left")
                 }
-                // Draw a live vertical guideline instead of live-resizing columns -> no flicker.
-                .overlay(alignment: .topLeading) {
-                    if let x = guideX {
-                        GeometryReader { proxy in
-                            Rectangle()
-                                .fill(Color.accentColor.opacity(0.9))
-                                .frame(width: 2, height: proxy.size.height)
-                                .offset(x: x)
-                        }
-                        .allowsHitTesting(false)
-                    }
-                }
-                .frame(minWidth: totalContentWidth, alignment: .leading)
-            }
-            .contextMenu {
-                if !selection.isEmpty {
-                    Button(action: {
-                        onTransfer(Array(selection))
-                    }) {
-                        Label("Transfer", systemImage: "arrow.right.arrow.left")
-                    }
-                    Divider()
-                }
-                Button("Refresh") { onRefresh() }
                 Divider()
-                Button("New Folder") {
-                    // TODO: Implement new folder creation
-                }
-                if !selection.isEmpty {
-                    Divider()
-                    Button("Delete", role: .destructive) {
-                        onDelete(Array(selection))
-                    }
+            }
+            Button("Refresh", action: onReload)
+            if !files.isEmpty {
+                Divider()
+                Button(role: .destructive) {
+                    onDelete(files)
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
-            .animation(nil, value: activeDrag?.delta) // ensure no implicit animations while dragging
+        } primaryAction: { ids in
+            guard let id = ids.first,
+                  let file = state.files.first(where: { $0.id == id }),
+                  file.isDirectory else { return }
+            navigate(into: file)
         }
+        .dragContainer(for: RemoteFileDragItem.self, itemID: \.id) { (ids: [UUID]) in
+            state.files
+                .filter { ids.contains($0.id) }
+                .map { file in
+                    RemoteFileDragItem(
+                        id: file.id,
+                        path: file.path,
+                        name: file.name,
+                        isDirectory: file.isDirectory,
+                        originSide: side.rawValue
+                    )
+                }
+        }
+        .dragContainerSelection(Array(state.selection))
+        .dropDestination(for: RemoteFileDragItem.self) { items, _ in
+            let foreign = items.filter { $0.originSide != side.rawValue }
+            guard !foreign.isEmpty else { return false }
+            onDrop(foreign)
+            return true
+        } isTargeted: { targeted in
+            isDropTargeted = targeted
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay {
+            if state.isLoading {
+                ProgressView()
+                    .controlSize(.large)
+                    .padding(20)
+                    .background(.regularMaterial, in: .rect(cornerRadius: 10))
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: isDropTargeted)
     }
-    
-    // Get parent path handling both local and remote paths properly
-    private func getParentPath(from path: String) -> String {
-        // Handle special cases
-        if path == "/" || path == "~" {
-            return path  // Can't go up from root or home
-        }
-        
-        // For home-relative paths
+
+    // MARK: navigation
+
+    private func navigateUp() {
+        let parent = parentPath(of: state.path)
+        guard parent != state.path else { return }
+        state.path = parent
+        state.selection.removeAll()
+        onReload()
+    }
+
+    private func navigateHome() {
+        state.path = (state.location == .localhost) ? NSHomeDirectory() : "~"
+        state.selection.removeAll()
+        onReload()
+    }
+
+    private func navigate(into file: RemoteFile) {
+        state.path = file.path
+        state.selection.removeAll()
+        onReload()
+    }
+
+    private func parentPath(of path: String) -> String {
+        if path == "/" || path == "~" { return path }
         if path.hasPrefix("~/") {
-            let withoutTilde = String(path.dropFirst(2))
-            if !withoutTilde.contains("/") {
-                // Direct child of home, go back to home
-                return "~"
-            }
-            // Remove last component
-            let components = withoutTilde.split(separator: "/")
-            if components.count > 1 {
-                let parentComponents = components.dropLast()
-                return "~/" + parentComponents.joined(separator: "/")
-            }
-            return "~"
+            let comps = path.dropFirst(2).split(separator: "/")
+            return comps.count <= 1 ? "~" : "~/" + comps.dropLast().joined(separator: "/")
         }
-        
-        // For absolute paths
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
-        if components.isEmpty {
-            return "/"
-        }
-        
-        let parentComponents = components.dropLast()
-        if parentComponents.isEmpty {
-            return "/"
-        }
-        
-        return "/" + parentComponents.joined(separator: "/")
-    }
-    
-    // Handle header resize events; show guideline during drag and only commit on end
-    private func handleResizePhase(_ key: ColumnKey, _ phase: ResizePhase) {
-        switch phase {
-        case .start:
-            let startWidth: CGFloat
-            switch key {
-            case .name: startWidth = columnWidths.name
-            case .size: startWidth = columnWidths.size
-            case .permissions: startWidth = columnWidths.permissions
-            }
-            activeDrag = (key: key, start: startWidth, delta: 0)
-            // Initialize guideline at current divider
-            guideX = dividerX(for: key, proposed: startWidth)
-            
-        case .change(let dx):
-            if var drag = activeDrag {
-                drag.delta = dx
-                activeDrag = drag
-                // Move guideline with clamped proposed width
-                let proposed: CGFloat
-                switch drag.key {
-                case .name: proposed = (drag.start + dx).clamped(to: nameRange)
-                case .size: proposed = (drag.start + dx).clamped(to: sizeRange)
-                case .permissions: proposed = (drag.start + dx).clamped(to: permRange)
-                }
-                guideX = dividerX(for: drag.key, proposed: proposed)
-            }
-            
-        case .end:
-            guard let drag = activeDrag else { return }
-            var committed = columnWidths
-            switch drag.key {
-            case .name:
-                committed.name = (drag.start + drag.delta).clamped(to: nameRange)
-            case .size:
-                committed.size = (drag.start + drag.delta).clamped(to: sizeRange)
-            case .permissions:
-                committed.permissions = (drag.start + drag.delta).clamped(to: permRange)
-            }
-            columnWidths = committed // single commit -> no flicker
-            activeDrag = nil
-            guideX = nil
-        }
-    }
-
-    // Compute divider X position within content for a given column and proposed width.
-    private func dividerX(for key: ColumnKey, proposed: CGFloat) -> CGFloat {
-        switch key {
-        case .name:
-            return iconWidth + proposed
-        case .size:
-            return iconWidth + columnWidths.name + gripWidth + proposed
-        case .permissions:
-            return iconWidth + columnWidths.name + gripWidth + columnWidths.size + gripWidth + proposed
-        }
+        let comps = path.split(separator: "/", omittingEmptySubsequences: true)
+        if comps.isEmpty { return "/" }
+        let dropped = comps.dropLast()
+        return dropped.isEmpty ? "/" : "/" + dropped.joined(separator: "/")
     }
 }
 
-// MARK: - Header Row with Resizers
+// MARK: - Location menu
 
-struct FileListHeader: View {
-    @Binding var sortOption: FileSortOption
-    @Binding var sortAscending: Bool
-    
-    // NOTE: For flicker-free behavior, this is a value (snapshot),
-    // not a binding. The parent computes an "effective" width while dragging.
-    let columnWidths: ColumnWidths
-    
-    let iconWidth: CGFloat
-    let gripWidth: CGFloat
-    let height: CGFloat
-    
-    // Callback to parent with which column is being resized
-    let onResizePhase: (ColumnKey, ResizePhase) -> Void
-    
-    var body: some View {
-        HStack(spacing: 0) {
-            // Icon placeholder
-            Color.clear.frame(width: iconWidth, height: height)
-            
-            // Name
-            headerButton(title: "Name", isActive: sortOption == .name) {
-                if sortOption == .name { sortAscending.toggle() } else { sortOption = .name; sortAscending = true }
-            }
-            .frame(width: columnWidths.name, height: height, alignment: .leading)
-            resizer(gripWidth: gripWidth) { phase in
-                onResizePhase(.name, phase)
-            }
-            
-            // Size
-            headerButton(title: "Size", isActive: sortOption == .size) {
-                if sortOption == .size { sortAscending.toggle() } else { sortOption = .size; sortAscending = true }
-            }
-            .frame(width: columnWidths.size, height: height, alignment: .trailing)
-            resizer(gripWidth: gripWidth) { phase in
-                onResizePhase(.size, phase)
-            }
-            
-            // Permissions (non-sortable label)
-            Text("Permissions")
-                .fontWeight(.regular)
-                .padding(.horizontal, 4)
-                .frame(width: columnWidths.permissions, height: height, alignment: .center)
-            resizer(gripWidth: gripWidth) { phase in
-                onResizePhase(.permissions, phase)
-            }
-            
-            // Date (no resizer for last column to keep edge clean)
-            headerButton(title: "Modified", isActive: sortOption == .date) {
-                if sortOption == .date { sortAscending.toggle() } else { sortOption = .date; sortAscending = true }
-            }
-            .frame(width: columnWidths.date, height: height, alignment: .trailing)
-        }
-        .transaction { $0.disablesAnimations = true }
-    }
-    
-    // Sortable header button
-    @ViewBuilder
-    private func headerButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                if title == "Name" {
-                    Text(title).fontWeight(isActive ? .semibold : .regular)
-                    Spacer(minLength: 0)
-                } else {
-                    Spacer(minLength: 0)
-                    Text(title).fontWeight(isActive ? .semibold : .regular)
-                }
-                if isActive {
-                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                }
-            }
-            .padding(.horizontal, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-    
-    // Resizer Grip
-    @ViewBuilder
-    private func resizer(gripWidth: CGFloat, onPhase: @escaping (ResizePhase) -> Void) -> some View {
-        ResizerGrip(width: gripWidth, onPhase: onPhase)
-    }
-}
+private struct LocationMenu: View {
+    let location: FileLocation
+    let profiles: [SSHProfile]
+    let onChange: (FileLocation) -> Void
 
-private struct ResizerGrip: View {
-    let width: CGFloat
-    let onPhase: (ResizePhase) -> Void
-    
-    @State private var hovering = false
-    @State private var dragging = false
-    
     var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(width: width)
-            .overlay(
-                Rectangle()
-                    .frame(width: 2)
-                    .foregroundStyle((hovering || dragging) ? Color.accentColor.opacity(0.9) : Color.gray.opacity(0.35))
-            )
-            .contentShape(Rectangle())
-            .onHover { isHovering in
-                hovering = isHovering
-                if isHovering { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+        Menu {
+            Button {
+                onChange(.localhost)
+            } label: {
+                Label("Localhost", systemImage: "laptopcomputer")
             }
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !dragging {
-                            dragging = true
-                            onPhase(.start)
+            if !profiles.isEmpty {
+                Divider()
+                Section("Servers") {
+                    ForEach(profiles) { profile in
+                        Button {
+                            onChange(.server(profile))
+                        } label: {
+                            Label(profile.name, systemImage: "server.rack")
                         }
-                        onPhase(.change(value.translation.width))
                     }
-                    .onEnded { _ in
-                        dragging = false
-                        onPhase(.end)
-                    }
-            )
-            .transaction { $0.disablesAnimations = true }
-    }
-}
-
-// MARK: - File Row
-
-struct FileRow: View {
-    let iconWidth: CGFloat
-    let heights: CGFloat
-    let nameWidth: CGFloat
-    let sizeWidth: CGFloat
-    let permWidth: CGFloat
-    let dateWidth: CGFloat
-    
-    // file is optional to allow rendering the parent ("..") row without fabricating a RemoteFile
-    let file: RemoteFile?
-    let isParentRow: Bool
-    let isSelected: Bool
-    let onDoubleClick: () -> Void
-    
-    var body: some View {
-        HStack(spacing: 0) {
-            // Icon
-            Image(systemName: (isParentRow || (file?.isDirectory ?? false)) ? "folder.fill" : "doc.fill")
-                .foregroundStyle((isParentRow || (file?.isDirectory ?? false)) ? .blue : .gray)
-                .frame(width: iconWidth, height: heights, alignment: .center)
-            
-            // Name
-            Text(isParentRow ? ".." : (file?.name ?? ""))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, 4)
-                .frame(width: nameWidth, height: heights, alignment: .leading)
-            
-            // Vertical grip placeholder line (keeps alignment with header’s grip)
-            Spacer().frame(width: 8).fixedSize()
-            
-            // Size
-            Text(isParentRow ? "" : (file?.sizeString ?? ""))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-                .frame(width: sizeWidth, height: heights, alignment: .trailing)
-            
-            Spacer().frame(width: 8).fixedSize()
-            
-            // Permissions
-            Text(isParentRow ? "" : (file?.permissions ?? ""))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-                .frame(width: permWidth, height: heights, alignment: .center)
-            
-            Spacer().frame(width: 8).fixedSize()
-            
-            // Date
-            Text(isParentRow ? "" : (file?.dateString ?? ""))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 4)
-                .frame(width: dateWidth, height: heights, alignment: .trailing)
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: location == .localhost ? "laptopcomputer" : "server.rack")
+                    .foregroundStyle(.secondary)
+                Text(location.displayName)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
         }
-        .frame(height: heights)
-        .background(isSelected ? Color.accentColor.opacity(0.18) : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2, perform: onDoubleClick)
-        .transaction { $0.disablesAnimations = true }
+        .menuStyle(.button)
+        .buttonStyle(.bordered)
+        .fixedSize()
     }
 }
 
-// MARK: - Transfer Queue
+// MARK: - Status bar
 
-struct TransferQueueView: View {
+private struct SFTPStatusBar: View {
+    let leftPane: PaneState
+    let rightPane: PaneState
     let transfers: [FileTransfer]
-    
+    @Binding var queueExpanded: Bool
+    let onTransferRight: () -> Void
+    let onTransferLeft: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            paneSummary(leftPane)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            transferControls
+
+            paneSummary(rightPane)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+            Divider().frame(height: 14)
+
+            transferStatusButton
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .font(.callout)
+    }
+
+    private var transferControls: some View {
+        HStack(spacing: 6) {
+            Button(action: onTransferLeft) {
+                Image(systemName: "arrow.left")
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
+            .help("Send selection to left (⌘⇧←)")
+            .disabled(rightPane.selection.isEmpty)
+
+            Button(action: onTransferRight) {
+                Image(systemName: "arrow.right")
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
+            .help("Send selection to right (⌘⇧→)")
+            .disabled(leftPane.selection.isEmpty)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+    }
+
+    private func paneSummary(_ pane: PaneState) -> some View {
+        let total = pane.files.count
+        let sel = pane.selection.count
+        let summary: String
+        if sel == 0 {
+            summary = "\(total) item\(total == 1 ? "" : "s")"
+        } else {
+            let size = ByteCountFormatter.string(fromByteCount: pane.selectionSize, countStyle: .file)
+            summary = "\(sel) selected · \(size)"
+        }
+        return HStack(spacing: 6) {
+            Text(pane.location.displayName)
+                .fontWeight(.medium)
+            Text("·")
+                .foregroundStyle(.tertiary)
+            Text(summary)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+    }
+
+    private var transferStatusButton: some View {
+        let active = transfers.filter { $0.status == .transferring }.count
+        let failed = transfers.filter { $0.status == .failed }.count
+        let total = transfers.count
+
+        return Button {
+            queueExpanded.toggle()
+        } label: {
+            HStack(spacing: 6) {
+                if active > 0 {
+                    ProgressView().controlSize(.small)
+                    Text("\(active) active").monospacedDigit()
+                } else if total > 0 {
+                    Image(systemName: failed > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(failed > 0 ? Color.yellow : Color.green)
+                    Text("\(total) transfer\(total == 1 ? "" : "s")")
+                        .monospacedDigit()
+                } else {
+                    Image(systemName: "tray")
+                        .foregroundStyle(.secondary)
+                    Text("No transfers").foregroundStyle(.secondary)
+                }
+                Image(systemName: queueExpanded ? "chevron.down" : "chevron.up")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.borderless)
+        .disabled(transfers.isEmpty)
+    }
+}
+
+// MARK: - Transfer queue
+
+private struct TransferQueueView: View {
+    let transfers: [FileTransfer]
+    let onCancel: (UUID) -> Void
+    let onCancelAll: () -> Void
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Transfer Queue")
+            HStack(spacing: 10) {
+                Text("Transfers")
                     .font(.headline)
-                
                 Spacer()
-                
-                // Show counts
-                let activeCount = transfers.filter { $0.status == .transferring }.count
-                let failedCount = transfers.filter { $0.status == .failed }.count
-                let completedCount = transfers.filter { $0.status == .completed }.count
-                
-                if activeCount > 0 {
-                    Label("\(activeCount)", systemImage: "arrow.right.circle")
+
+                let active = transfers.filter { $0.status == .transferring || $0.status == .pending }.count
+                let completed = transfers.filter { $0.status == .completed }.count
+                let failed = transfers.filter { $0.status == .failed }.count
+                let cancelled = transfers.filter { $0.status == .cancelled }.count
+
+                if active > 0 {
+                    Label("\(active)", systemImage: "arrow.right.circle")
                         .foregroundStyle(.blue)
-                        .font(.caption)
                 }
-                
-                if completedCount > 0 {
-                    Label("\(completedCount)", systemImage: "checkmark.circle.fill")
+                if completed > 0 {
+                    Label("\(completed)", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                        .font(.caption)
                 }
-                
-                if failedCount > 0 {
-                    Label("\(failedCount)", systemImage: "xmark.circle.fill")
+                if failed > 0 {
+                    Label("\(failed)", systemImage: "xmark.circle.fill")
                         .foregroundStyle(.red)
-                        .font(.caption)
+                }
+                if cancelled > 0 {
+                    Label("\(cancelled)", systemImage: "stop.circle")
+                        .foregroundStyle(.secondary)
+                }
+
+                if active > 0 {
+                    Button(role: .destructive, action: onCancelAll) {
+                        Label("Cancel All", systemImage: "stop.fill")
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.bordered)
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 5)
-            
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+
             Divider()
-            
-            if transfers.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "arrow.right.arrow.left.circle")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.secondary)
-                    Text("No transfers in queue")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
-            } else {
-                ScrollView {
-                    VStack(spacing: 5) {
-                        ForEach(transfers) { transfer in
-                            TransferRow(transfer: transfer)
-                        }
+
+            ScrollView {
+                LazyVStack(spacing: 4) {
+                    ForEach(transfers) { transfer in
+                        TransferRow(transfer: transfer, onCancel: onCancel)
                     }
-                    .padding(10)
                 }
+                .padding(8)
             }
         }
-        .glassBackground(in: Rectangle(), fallback: .regularMaterial)
+        .background(.regularMaterial)
     }
 }
 
-struct TransferRow: View {
+private struct TransferRow: View {
     let transfer: FileTransfer
+    let onCancel: (UUID) -> Void
     @State private var showingError = false
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
+            HStack(spacing: 8) {
                 Image(systemName: statusIcon)
                     .foregroundStyle(statusColor)
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(URL(fileURLWithPath: transfer.sourcePath).lastPathComponent)
                         .lineLimit(1)
                         .fontWeight(.medium)
-                    
-                    HStack {
+                    HStack(spacing: 6) {
                         Text("\(transfer.sourceLocation.displayName) → \(transfer.destinationLocation.displayName)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        
                         if transfer.status == .transferring {
                             Text(transfer.progressString)
                                 .font(.caption)
                                 .foregroundStyle(.blue)
+                                .monospacedDigit()
                         }
                     }
-                    
-                    // Show error message for failed transfers
-                    if transfer.status == .failed, let error = transfer.error {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .lineLimit(showingError ? nil : 1)
-                            .truncationMode(.tail)
-                    }
                 }
-                
+
                 Spacer()
-                
-                if transfer.status == .transferring {
-                    ProgressView(value: transfer.progress)
-                        .frame(width: 100)
+
+                if transfer.status == .transferring || transfer.status == .pending {
+                    if transfer.status == .transferring {
+                        ProgressView(value: transfer.progress)
+                            .frame(width: 80)
+                    }
+                    Button {
+                        onCancel(transfer.id)
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Cancel transfer")
                 } else if transfer.status == .failed && transfer.error != nil {
-                    Button(action: { showingError.toggle() }) {
+                    Button {
+                        showingError.toggle()
+                    } label: {
                         Image(systemName: showingError ? "chevron.up.circle" : "info.circle")
                             .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
-                    .help(showingError ? "Hide error details" : "Show error details")
                 }
             }
-            
-            // Expanded error details
+
             if showingError, transfer.status == .failed, let error = transfer.error {
                 VStack(alignment: .leading, spacing: 4) {
                     Divider()
-                    Text("Error Details:")
-                        .font(.caption)
-                        .fontWeight(.semibold)
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    
-                    HStack(spacing: 4) {
-                        Text("From:")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(transfer.sourcePath)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
-                    
-                    HStack(spacing: 4) {
-                        Text("To:")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text(transfer.destinationPath)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    }
+                    Text("From: \(transfer.sourcePath)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Text("To: \(transfer.destinationPath)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
-                .padding(.top, 4)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .glassBackground(in: .rect(cornerRadius: 5), fallback: .regularMaterial)
+        .padding(.vertical, 6)
+        .background(.background.opacity(0.5), in: .rect(cornerRadius: 6))
     }
 
     private var statusIcon: String {
         switch transfer.status {
-        case .pending: return "clock"
+        case .pending:      return "clock"
         case .transferring: return "arrow.right.circle"
-        case .completed: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
+        case .completed:    return "checkmark.circle.fill"
+        case .failed:       return "xmark.circle.fill"
+        case .cancelled:    return "stop.circle"
         }
     }
-    
+
     private var statusColor: Color {
         switch transfer.status {
-        case .pending: return .gray
+        case .pending:      return .gray
         case .transferring: return .blue
-        case .completed: return .green
-        case .failed: return .red
+        case .completed:    return .green
+        case .failed:       return .red
+        case .cancelled:    return .gray
         }
     }
 }
 
-// MARK: - Utilities
+// MARK: - Conflict resolution sheet
 
-private extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
-        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
+private struct ConflictResolutionSheet: View {
+    let intent: TransferIntent
+    let remaining: Int
+    @Binding var applyToAll: Bool
+    let onResolve: (ConflictDecision) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(.yellow)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(intent.isDirectory ? "A folder" : "A file") named \u{201C}\(intent.name)\u{201D} already exists at the destination.")
+                        .font(.headline)
+
+                    Text(intent.destPath)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+
+                    Text("Replacing will delete the existing item before transferring.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 2)
+                }
+            }
+
+            if remaining > 1 {
+                Toggle(isOn: $applyToAll) {
+                    Text("Apply to remaining \(remaining - 1) conflict\(remaining - 1 == 1 ? "" : "s")")
+                        .font(.callout)
+                }
+                .toggleStyle(.checkbox)
+            }
+
+            HStack(spacing: 8) {
+                Button("Stop", role: .cancel) {
+                    onResolve(.stop)
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Skip") {
+                    onResolve(.skip)
+                }
+
+                Button("Replace") {
+                    onResolve(.replace)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 480, idealWidth: 520)
     }
+}
+
+// MARK: - Path helpers
+
+private func joinPath(_ base: String, _ name: String) -> String {
+    base.hasSuffix("/") ? "\(base)\(name)" : "\(base)/\(name)"
 }

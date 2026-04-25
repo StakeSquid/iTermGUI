@@ -21,7 +21,7 @@
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+    <string>26.0</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
     <key>NSHighResolutionCapable</key>
@@ -34,5 +34,20 @@
     <string>NSApplication</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>iTermGUI needs to control iTerm2 to open SSH connections.</string>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.itermgui.remotefile</string>
+            <key>UTTypeDescription</key>
+            <string>iTermGUI Remote File</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict/>
+        </dict>
+    </array>
 </dict>
 </plist>

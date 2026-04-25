@@ -1,10 +1,10 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "iTermGUI",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v26)
     ],
     products: [
         .executable(
@@ -21,12 +21,18 @@ let package = Package(
             dependencies: [
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
-            path: "Sources/iTermGUI"
+            path: "Sources/iTermGUI",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         ),
         .testTarget(
             name: "iTermGUITests",
             dependencies: ["iTermGUI"],
-            path: "Tests/iTermGUITests"
+            path: "Tests/iTermGUITests",
+            swiftSettings: [
+                .swiftLanguageMode(.v5)
+            ]
         )
     ]
 )

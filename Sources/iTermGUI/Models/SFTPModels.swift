@@ -66,4 +66,5 @@ enum TransferStatus {
     case transferring
     case completed
     case failed
+    case cancelled
 }

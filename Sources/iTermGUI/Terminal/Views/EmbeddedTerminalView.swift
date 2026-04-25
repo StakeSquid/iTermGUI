@@ -423,17 +423,26 @@ struct TerminalHostingView: NSViewRepresentable {
         
         let connectionString = profile.username.isEmpty ? profile.host : "\(profile.username)@\(profile.host)"
         sshArgs.append(connectionString)
-        
+
         // Get embedded settings
         let embeddedSettings = session.sshProfile.effectiveEmbeddedTerminalSettings
-        
+
         // Set up environment
         var environment = ProcessInfo.processInfo.environment
         environment["TERM"] = embeddedSettings.terminalType
         environment["LANG"] = embeddedSettings.locale
         environment["LC_ALL"] = embeddedSettings.locale
+
+        // If the profile uses password auth and we have a stored password,
+        // stage it for SSH_ASKPASS so ssh auto-fills the prompt.
+        if profile.authMethod == .password,
+           let password = profile.password, !password.isEmpty,
+           let passwordFile = SSHPasswordHelper.shared.stagePassword(password) {
+            environment.merge(SSHPasswordHelper.shared.embeddedEnvironment(passwordFile: passwordFile)) { _, new in new }
+        }
+
         let envArray = environment.map { "\($0.key)=\($0.value)" }
-        
+
         // Start the process
         terminal.startProcess(
             executable: "/usr/bin/ssh",

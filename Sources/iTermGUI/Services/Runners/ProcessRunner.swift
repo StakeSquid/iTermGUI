@@ -4,11 +4,20 @@ struct ProcessLaunch {
     let launchPath: String
     let arguments: [String]
     let stdinData: Data?
+    /// Extra env vars merged into the inherited process environment. nil
+    /// means inherit unchanged.
+    let environment: [String: String]?
 
-    init(launchPath: String, arguments: [String], stdinData: Data? = nil) {
+    init(
+        launchPath: String,
+        arguments: [String],
+        stdinData: Data? = nil,
+        environment: [String: String]? = nil
+    ) {
         self.launchPath = launchPath
         self.arguments = arguments
         self.stdinData = stdinData
+        self.environment = environment
     }
 }
 
@@ -31,6 +40,11 @@ final class FoundationProcessRunner: ProcessRunner {
         let task = Process()
         task.launchPath = launch.launchPath
         task.arguments = launch.arguments
+        if let extra = launch.environment {
+            var merged = ProcessInfo.processInfo.environment
+            for (k, v) in extra { merged[k] = v }
+            task.environment = merged
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
