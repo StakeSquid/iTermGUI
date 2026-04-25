@@ -333,3 +333,40 @@ struct SFTPServerToServerDestTests {
         #expect(cmd == "mkdir -p '/tmp' && cd '/tmp' && tar xf -")
     }
 }
+
+@Suite("SFTPService.buildExistsCommand")
+struct SFTPBuildExistsCommandTests {
+    private let svc = SFTPService(processRunner: FakeProcessRunner(), fileStore: InMemoryProfileFileStore())
+
+    /// Regression: tilde-prefixed paths used to be wrapped in single quotes, which
+    /// suppressed `$HOME` expansion on the remote and made every existence check
+    /// silently report `false`. Conflict prompts never fired and files were
+    /// overwritten without asking.
+    @Test func tildePathUsesDoubleQuotesSoHomeExpands() {
+        let cmd = svc.buildExistsCommand(paths: ["~/Downloads/foo.txt"])
+        #expect(cmd.contains("[ -e \"$HOME/Downloads/foo.txt\" ]"))
+        #expect(!cmd.contains("\u{27}$HOME"))
+    }
+
+    @Test func absolutePathUsesDoubleQuotes() {
+        let cmd = svc.buildExistsCommand(paths: ["/var/log/system.log"])
+        #expect(cmd.contains("[ -e \"/var/log/system.log\" ]"))
+    }
+
+    @Test func indicesPrefixOutputLinesInOrder() {
+        let cmd = svc.buildExistsCommand(paths: ["/a", "/b", "/c"])
+        #expect(cmd.contains("echo \"0|1\""))
+        #expect(cmd.contains("echo \"1|1\""))
+        #expect(cmd.contains("echo \"2|1\""))
+    }
+
+    @Test func emptyInputProducesOnlyHeader() {
+        let cmd = svc.buildExistsCommand(paths: [])
+        #expect(cmd == "set +o noglob 2>/dev/null || true\n")
+    }
+
+    @Test func doubleQuotesInPathAreEscaped() {
+        let cmd = svc.buildExistsCommand(paths: ["/tmp/weird\"name"])
+        #expect(cmd.contains("\\\""))
+    }
+}

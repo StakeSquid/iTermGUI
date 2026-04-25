@@ -163,6 +163,17 @@ class SFTPService: ObservableObject {
             .replacingOccurrences(of: "'", with: "'\\''")
     }
 
+    /// Escape a path so it is safe inside a double-quoted shell string while
+    /// still allowing `$HOME` (produced by `expandTildeForShell`) to expand.
+    /// Escapes `\`, `"`, and backtick. Does NOT escape `$` — accept that risk
+    /// in exchange for tilde-expansion working remotely.
+    func escapePathForShellDoubleQuote(_ path: String) -> String {
+        path
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "`", with: "\\`")
+    }
+
     func buildRemoteListCommand(path: String) -> String {
         let expandedPath = expandTildeForShell(path)
         return """
@@ -908,12 +919,13 @@ class SFTPService: ObservableObject {
     // MARK: - Existence checks
 
     func buildExistsCommand(paths: [String]) -> String {
-        // Emits one line per path: `1|<path>` or `0|<path>` (idx prefix avoids collisions in parsing)
+        // Emits one line per path: `<index>|1` if the path exists, `<index>|0` otherwise.
+        // Use double-quotes so `$HOME` produced by `expandTildeForShell` actually expands.
         var script = "set +o noglob 2>/dev/null || true\n"
         for (index, path) in paths.enumerated() {
             let expanded = expandTildeForShell(path)
-            let escaped = escapePathForShellSingleQuote(expanded)
-            script += "if [ -e '\(escaped)' ]; then echo '\(index)|1'; else echo '\(index)|0'; fi\n"
+            let escaped = escapePathForShellDoubleQuote(expanded)
+            script += "if [ -e \"\(escaped)\" ]; then echo \"\(index)|1\"; else echo \"\(index)|0\"; fi\n"
         }
         return script
     }
