@@ -258,6 +258,181 @@ private struct HeaderIconButton: View {
     }
 }
 
+// MARK: - Section card helpers
+
+struct ProfileFormScroll<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                content()
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 14)
+            .padding(.bottom, 32)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollContentBackground(.hidden)
+    }
+}
+
+struct ProfileSectionCard<Content: View>: View {
+    let title: String
+    let icon: String?
+    let footer: String?
+    @ViewBuilder let content: () -> Content
+
+    init(_ title: String, icon: String? = nil, footer: String? = nil, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.icon = icon
+        self.footer = footer
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                Text(title.uppercased())
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(0.6)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
+
+            VStack(alignment: .leading, spacing: 0) {
+                content()
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.primary.opacity(0.045))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+            }
+
+            if let footer {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.top, 2)
+            }
+        }
+    }
+}
+
+struct ProfileTextRow: View {
+    let label: String
+    @Binding var text: String
+    let prompt: String
+    let isEditing: Bool
+    var monospaced: Bool = false
+
+    var body: some View {
+        ProfileRowChrome {
+            LabeledContent {
+                TextField("", text: $text, prompt: Text(prompt))
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .modifier(MonoFontIfNeeded(enabled: monospaced))
+                    .foregroundStyle(isEditing ? Color.primary : Color.secondary)
+                    .disabled(!isEditing)
+            } label: {
+                Text(label)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+            }
+        }
+    }
+}
+
+struct ProfileNumberRow: View {
+    let label: String
+    @Binding var value: Int
+    let prompt: String
+    let isEditing: Bool
+    var maxWidth: CGFloat = 100
+
+    var body: some View {
+        ProfileRowChrome {
+            LabeledContent {
+                TextField("", value: $value, format: .number, prompt: Text(prompt))
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: maxWidth)
+                    .foregroundStyle(isEditing ? Color.primary : Color.secondary)
+                    .disabled(!isEditing)
+            } label: {
+                Text(label)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+            }
+        }
+    }
+}
+
+struct ProfileSecureRow: View {
+    let label: String
+    @Binding var text: String
+    let prompt: String
+    let isEditing: Bool
+
+    var body: some View {
+        ProfileRowChrome {
+            LabeledContent {
+                SecureField("", text: $text, prompt: Text(prompt))
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .foregroundStyle(isEditing ? Color.primary : Color.secondary)
+                    .disabled(!isEditing)
+            } label: {
+                Text(label)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.primary)
+            }
+        }
+    }
+}
+
+struct ProfileRowChrome<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct ProfileRowDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.primary.opacity(0.06))
+            .frame(height: 0.5)
+    }
+}
+
+private struct MonoFontIfNeeded: ViewModifier {
+    let enabled: Bool
+    func body(content: Content) -> some View {
+        if enabled {
+            content.font(.system(.body, design: .monospaced))
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Connection Tab
 
 struct ConnectionTabView: View {
@@ -265,42 +440,61 @@ struct ConnectionTabView: View {
     let isEditing: Bool
 
     var body: some View {
-        Form {
-            Section("Server") {
-                TextField("Profile Name", text: $profile.name, prompt: Text("Required"))
-                    .disabled(!isEditing)
-                TextField("Host", text: $profile.host, prompt: Text("hostname.example.com"))
-                    .disabled(!isEditing)
-                TextField("Port", value: $profile.port, format: .number, prompt: Text("22"))
-                    .disabled(!isEditing)
-                TextField("Username", text: $profile.username, prompt: Text(NSUserName()))
-                    .disabled(!isEditing)
+        ProfileFormScroll {
+            ProfileSectionCard("Server", icon: "server.rack") {
+                ProfileTextRow(label: "Profile Name", text: $profile.name, prompt: "Required", isEditing: isEditing)
+                ProfileRowDivider()
+                ProfileTextRow(label: "Host", text: $profile.host, prompt: "hostname.example.com", isEditing: isEditing, monospaced: true)
+                ProfileRowDivider()
+                ProfileNumberRow(label: "Port", value: $profile.port, prompt: "22", isEditing: isEditing)
+                ProfileRowDivider()
+                ProfileTextRow(label: "Username", text: $profile.username, prompt: NSUserName(), isEditing: isEditing, monospaced: true)
             }
 
-            Section("Proxy") {
-                TextField("Jump Host", text: Binding(
-                    get: { profile.jumpHost ?? "" },
-                    set: { profile.jumpHost = $0.isEmpty ? nil : $0 }
-                ), prompt: Text("user@bastion.example.com"))
-                .disabled(!isEditing)
+            ProfileSectionCard("Proxy", icon: "arrow.triangle.branch") {
+                ProfileTextRow(
+                    label: "Jump Host",
+                    text: Binding(
+                        get: { profile.jumpHost ?? "" },
+                        set: { profile.jumpHost = $0.isEmpty ? nil : $0 }
+                    ),
+                    prompt: "user@bastion.example.com",
+                    isEditing: isEditing,
+                    monospaced: true
+                )
                 .help("Use another host as a jump server (ProxyJump)")
 
-                TextField("Proxy Command", text: Binding(
-                    get: { profile.proxyCommand ?? "" },
-                    set: { profile.proxyCommand = $0.isEmpty ? nil : $0 }
-                ), prompt: Text("Optional"))
-                .disabled(!isEditing)
+                ProfileRowDivider()
+
+                ProfileTextRow(
+                    label: "Proxy Command",
+                    text: Binding(
+                        get: { profile.proxyCommand ?? "" },
+                        set: { profile.proxyCommand = $0.isEmpty ? nil : $0 }
+                    ),
+                    prompt: "Optional",
+                    isEditing: isEditing,
+                    monospaced: true
+                )
                 .help("Custom proxy command")
             }
 
-            Section("Organization") {
-                TagEditor(tags: $profile.tags, isEditing: isEditing)
-                Toggle("Favorite", isOn: $profile.isFavorite)
-                    .disabled(!isEditing)
-                GroupSelector(profile: $profile, isEditing: isEditing)
+            ProfileSectionCard("Organization", icon: "tag") {
+                ProfileRowChrome {
+                    TagEditor(tags: $profile.tags, isEditing: isEditing)
+                }
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    Toggle("Favorite", isOn: $profile.isFavorite)
+                        .toggleStyle(.switch)
+                        .disabled(!isEditing)
+                }
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    GroupSelector(profile: $profile, isEditing: isEditing)
+                }
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -312,67 +506,22 @@ struct AuthenticationTabView: View {
     @State private var showingFilePicker = false
 
     var body: some View {
-        Form {
-            Section("Method") {
-                Picker("Authentication", selection: $profile.authMethod) {
-                    ForEach(AuthMethod.allCases, id: \.self) { method in
-                        Text(method.rawValue).tag(method)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .disabled(!isEditing)
-            }
-
-            switch profile.authMethod {
-            case .publicKey:
-                Section {
-                    HStack(spacing: 6) {
-                        TextField("Private Key Path", text: Binding(
-                            get: { profile.privateKeyPath ?? "" },
-                            set: { profile.privateKeyPath = $0.isEmpty ? nil : $0 }
-                        ), prompt: Text("~/.ssh/id_rsa"))
-                        .font(.system(.body, design: .monospaced))
-                        .disabled(!isEditing)
-
-                        Button {
-                            showingFilePicker = true
-                        } label: {
-                            Image(systemName: "folder")
+        ProfileFormScroll {
+            ProfileSectionCard("Method", icon: "key") {
+                ProfileRowChrome {
+                    Picker("Authentication", selection: $profile.authMethod) {
+                        ForEach(AuthMethod.allCases, id: \.self) { method in
+                            Text(method.rawValue).tag(method)
                         }
-                        .disabled(!isEditing)
-                        .help("Browse for key file")
                     }
-                } header: {
-                    Text("Public Key")
-                } footer: {
-                    Text("Common locations: ~/.ssh/id_rsa, ~/.ssh/id_ed25519")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            case .password:
-                Section {
-                    SecureField("Password", text: Binding(
-                        get: { profile.password ?? "" },
-                        set: { profile.password = $0.isEmpty ? nil : $0 }
-                    ), prompt: Text("Stored in Keychain"))
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                     .disabled(!isEditing)
-                } header: {
-                    Text("Password")
-                } footer: {
-                    Label("Passwords are stored securely in the macOS Keychain", systemImage: "lock.shield")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            case .keyboardInteractive, .certificate:
-                Section {
-                    Label("This method has no additional fields. Configure via SSH config or system tools.", systemImage: "info.circle")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
                 }
             }
+
+            methodCard
         }
-        .formStyle(.grouped)
         .fileImporter(
             isPresented: $showingFilePicker,
             allowedContentTypes: [.item],
@@ -380,6 +529,75 @@ struct AuthenticationTabView: View {
         ) { result in
             if case .success(let urls) = result, let url = urls.first {
                 profile.privateKeyPath = url.path
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var methodCard: some View {
+        switch profile.authMethod {
+        case .publicKey:
+            ProfileSectionCard(
+                "Public Key",
+                icon: "key.horizontal",
+                footer: "Common locations: ~/.ssh/id_rsa, ~/.ssh/id_ed25519"
+            ) {
+                ProfileRowChrome {
+                    LabeledContent {
+                        HStack(spacing: 6) {
+                            TextField("", text: Binding(
+                                get: { profile.privateKeyPath ?? "" },
+                                set: { profile.privateKeyPath = $0.isEmpty ? nil : $0 }
+                            ), prompt: Text("~/.ssh/id_rsa"))
+                            .textFieldStyle(.plain)
+                            .font(.system(.body, design: .monospaced))
+                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(isEditing ? Color.primary : Color.secondary)
+                            .disabled(!isEditing)
+
+                            Button {
+                                showingFilePicker = true
+                            } label: {
+                                Image(systemName: "folder")
+                                    .font(.system(size: 12))
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .disabled(!isEditing)
+                            .help("Browse for key file")
+                        }
+                    } label: {
+                        Text("Private Key Path")
+                            .font(.system(size: 13))
+                    }
+                }
+            }
+        case .password:
+            ProfileSectionCard("Password", icon: "lock.shield") {
+                ProfileSecureRow(
+                    label: "Password",
+                    text: Binding(
+                        get: { profile.password ?? "" },
+                        set: { profile.password = $0.isEmpty ? nil : $0 }
+                    ),
+                    prompt: "Stored in Keychain",
+                    isEditing: isEditing
+                )
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    Label("Passwords are stored securely in the macOS Keychain", systemImage: "lock.shield")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        case .keyboardInteractive, .certificate:
+            ProfileSectionCard("Configuration", icon: "info.circle") {
+                ProfileRowChrome {
+                    Label("This method has no additional fields. Configure via SSH config or system tools.", systemImage: "info.circle")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -392,41 +610,57 @@ struct AdvancedTabView: View {
     let isEditing: Bool
 
     var body: some View {
-        Form {
-            Section("Connection") {
-                Toggle("Compression", isOn: $profile.compression)
-                    .disabled(!isEditing)
-                Toggle("Strict Host Key Checking", isOn: $profile.strictHostKeyChecking)
-                    .disabled(!isEditing)
-
-                LabeledContent("Connection Timeout") {
-                    UnitNumberField(
-                        value: $profile.connectionTimeout,
-                        unit: "seconds",
-                        prompt: "30",
-                        disabled: !isEditing
-                    )
+        ProfileFormScroll {
+            ProfileSectionCard("Connection", icon: "gearshape") {
+                ProfileRowChrome {
+                    Toggle("Compression", isOn: $profile.compression)
+                        .toggleStyle(.switch)
+                        .disabled(!isEditing)
                 }
-
-                LabeledContent("Server Alive Interval") {
-                    UnitNumberField(
-                        value: $profile.serverAliveInterval,
-                        unit: "seconds",
-                        prompt: "60",
-                        disabled: !isEditing
-                    )
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    Toggle("Strict Host Key Checking", isOn: $profile.strictHostKeyChecking)
+                        .toggleStyle(.switch)
+                        .disabled(!isEditing)
+                }
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    LabeledContent {
+                        UnitNumberField(
+                            value: $profile.connectionTimeout,
+                            unit: "seconds",
+                            prompt: "30",
+                            disabled: !isEditing
+                        )
+                    } label: {
+                        Text("Connection Timeout").font(.system(size: 13))
+                    }
+                }
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    LabeledContent {
+                        UnitNumberField(
+                            value: $profile.serverAliveInterval,
+                            unit: "seconds",
+                            prompt: "60",
+                            disabled: !isEditing
+                        )
+                    } label: {
+                        Text("Server Alive Interval").font(.system(size: 13))
+                    }
                 }
             }
 
-            Section("Port Forwarding") {
-                PortForwardingEditor(
-                    localForwards: $profile.localForwards,
-                    remoteForwards: $profile.remoteForwards,
-                    isEditing: isEditing
-                )
+            ProfileSectionCard("Port Forwarding", icon: "arrow.left.arrow.right") {
+                ProfileRowChrome {
+                    PortForwardingEditor(
+                        localForwards: $profile.localForwards,
+                        remoteForwards: $profile.remoteForwards,
+                        isEditing: isEditing
+                    )
+                }
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -437,33 +671,46 @@ struct TerminalTabView: View {
     let isEditing: Bool
 
     var body: some View {
-        Form {
-            Section("Appearance") {
-                TextField("Color Scheme", text: $profile.terminalSettings.colorScheme, prompt: Text("Default"))
+        ProfileFormScroll {
+            ProfileSectionCard("Appearance", icon: "paintbrush") {
+                ProfileTextRow(label: "Color Scheme", text: $profile.terminalSettings.colorScheme, prompt: "Default", isEditing: isEditing)
+                ProfileRowDivider()
+                ProfileTextRow(label: "Font Family", text: $profile.terminalSettings.fontFamily, prompt: "Monaco", isEditing: isEditing, monospaced: true)
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    Stepper(
+                        "Font Size: \(profile.terminalSettings.fontSize) pt",
+                        value: $profile.terminalSettings.fontSize,
+                        in: 8...24
+                    )
                     .disabled(!isEditing)
-                TextField("Font Family", text: $profile.terminalSettings.fontFamily, prompt: Text("Monaco"))
-                    .disabled(!isEditing)
-                Stepper(
-                    "Font Size: \(profile.terminalSettings.fontSize) pt",
-                    value: $profile.terminalSettings.fontSize,
-                    in: 8...24
-                )
-                .disabled(!isEditing)
-
-                Picker("Cursor Style", selection: $profile.terminalSettings.cursorStyle) {
-                    ForEach(CursorStyle.allCases, id: \.self) { style in
-                        Text(style.rawValue).tag(style)
+                }
+                ProfileRowDivider()
+                ProfileRowChrome {
+                    LabeledContent {
+                        Picker("", selection: $profile.terminalSettings.cursorStyle) {
+                            ForEach(CursorStyle.allCases, id: \.self) { style in
+                                Text(style.rawValue).tag(style)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(maxWidth: 200)
+                        .disabled(!isEditing)
+                    } label: {
+                        Text("Cursor Style").font(.system(size: 13))
                     }
                 }
-                .disabled(!isEditing)
             }
 
-            Section("Behavior") {
-                TextField("Scrollback Lines", value: $profile.terminalSettings.scrollbackLines, format: .number, prompt: Text("10000"))
-                    .disabled(!isEditing)
+            ProfileSectionCard("Behavior", icon: "slider.horizontal.3") {
+                ProfileNumberRow(
+                    label: "Scrollback Lines",
+                    value: $profile.terminalSettings.scrollbackLines,
+                    prompt: "10000",
+                    isEditing: isEditing
+                )
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -517,7 +764,7 @@ struct CommandsTabView: View {
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .background(.secondary.opacity(0.12), in: Capsule())
+                        .glassBackground(in: .capsule, fallback: .thinMaterial)
                 }
             }
 
@@ -569,6 +816,7 @@ struct CommandsTabView: View {
 
                         Button("Add", action: addCommand)
                             .keyboardShortcut(.return, modifiers: [])
+                            .glassProminentButton()
                             .disabled(newCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
 
@@ -592,7 +840,11 @@ struct CommandsTabView: View {
                 }
             }
         }
-        .padding(20)
+        .padding(.horizontal, 24)
+        .padding(.top, 14)
+        .padding(.bottom, 28)
+        .frame(maxWidth: 760)
+        .frame(maxWidth: .infinity)
     }
 
     private func addCommand() {
@@ -905,15 +1157,15 @@ private struct DetailBackdrop: View {
         let tint = ProfileAvatar.color(for: profile)
         ZStack(alignment: .top) {
             LinearGradient(
-                colors: [tint.opacity(0.12), Color.clear],
+                colors: [tint.opacity(0.18), tint.opacity(0.04), Color.clear],
                 startPoint: .top,
-                endPoint: .center
+                endPoint: .bottom
             )
-            .frame(maxHeight: 280)
+            .frame(maxHeight: 360)
             .frame(maxWidth: .infinity, alignment: .top)
 
             LinearGradient(
-                colors: [.accentColor.opacity(0.05), Color.clear],
+                colors: [.accentColor.opacity(0.06), Color.clear],
                 startPoint: .topTrailing,
                 endPoint: .bottomLeading
             )
