@@ -283,47 +283,34 @@ class ProfileManager: ObservableObject {
     }
     
     func openSFTPWindow() {
-        // Open SFTP window without a specific profile
         let sftpView = SFTPView()
             .environmentObject(self)
-        
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        
-        window.title = "SFTP File Transfer"
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: sftpView)
-        window.makeKeyAndOrderFront(nil)
-        
-        // Set minimum and maximum sizes
-        window.minSize = NSSize(width: 900, height: 600)
-        window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        presentSFTPWindow(rootView: sftpView, title: "SFTP File Transfer")
     }
-    
+
     func openSFTPForProfile(_ profile: SSHProfile) {
-        // Open SFTP in a new window instead of a sheet
         let sftpView = SFTPView(profile: profile)
             .environmentObject(self)
-        
+        presentSFTPWindow(rootView: sftpView, title: "SFTP - \(profile.name)")
+    }
+
+    private func presentSFTPWindow<Root: View>(rootView: Root, title: String) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        
-        window.title = "SFTP - \(profile.name)"
+
+        window.title = title
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.center()
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: sftpView)
+        window.contentView = NSHostingView(rootView: rootView)
         window.makeKeyAndOrderFront(nil)
-        
-        // Set minimum and maximum sizes
+
         window.minSize = NSSize(width: 900, height: 600)
         window.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
     }

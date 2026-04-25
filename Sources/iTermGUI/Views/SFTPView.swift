@@ -87,58 +87,61 @@ struct SFTPView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HSplitView {
-                FilePane(
-                    side: .left,
-                    state: $leftPane,
-                    profiles: profileManager.profiles,
-                    counterpartLocation: rightPane.location,
-                    onReload: reloadLeft,
-                    onDelete: { files in
-                        pendingDelete = PendingDelete(side: .left, location: leftPane.location, files: files)
-                    },
-                    onTransferToOther: transferLeftToRight,
-                    onDrop: { items in handleDrop(into: .left, items: items) }
-                )
-                .frame(minWidth: 360, idealWidth: 560)
+        ZStack(alignment: .top) {
+            SFTPBackdrop(leftLocation: leftPane.location, rightLocation: rightPane.location)
 
-                FilePane(
-                    side: .right,
-                    state: $rightPane,
-                    profiles: profileManager.profiles,
-                    counterpartLocation: leftPane.location,
-                    onReload: reloadRight,
-                    onDelete: { files in
-                        pendingDelete = PendingDelete(side: .right, location: rightPane.location, files: files)
-                    },
-                    onTransferToOther: transferRightToLeft,
-                    onDrop: { items in handleDrop(into: .right, items: items) }
-                )
-                .frame(minWidth: 360, idealWidth: 560)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            VStack(spacing: 0) {
+                Color.clear.frame(height: 28)
 
-            Divider()
+                HSplitView {
+                    FilePane(
+                        side: .left,
+                        state: $leftPane,
+                        profiles: profileManager.profiles,
+                        counterpartLocation: rightPane.location,
+                        onReload: reloadLeft,
+                        onDelete: { files in
+                            pendingDelete = PendingDelete(side: .left, location: leftPane.location, files: files)
+                        },
+                        onTransferToOther: transferLeftToRight,
+                        onDrop: { items in handleDrop(into: .left, items: items) }
+                    )
+                    .frame(minWidth: 360, idealWidth: 560)
 
-            SFTPStatusBar(
-                leftPane: leftPane,
-                rightPane: rightPane,
-                transfers: sftpService.transfers,
-                queueExpanded: $queueExpanded,
-                onTransferRight: { transferLeftToRight(leftPane.selectedFiles) },
-                onTransferLeft: { transferRightToLeft(rightPane.selectedFiles) }
-            )
+                    FilePane(
+                        side: .right,
+                        state: $rightPane,
+                        profiles: profileManager.profiles,
+                        counterpartLocation: leftPane.location,
+                        onReload: reloadRight,
+                        onDelete: { files in
+                            pendingDelete = PendingDelete(side: .right, location: rightPane.location, files: files)
+                        },
+                        onTransferToOther: transferRightToLeft,
+                        onDrop: { items in handleDrop(into: .right, items: items) }
+                    )
+                    .frame(minWidth: 360, idealWidth: 560)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if queueVisible {
-                Divider()
-                TransferQueueView(
+                SFTPStatusBar(
+                    leftPane: leftPane,
+                    rightPane: rightPane,
                     transfers: sftpService.transfers,
-                    onCancel: { sftpService.cancelTransfer($0) },
-                    onCancelAll: cancelAllActive
+                    queueExpanded: $queueExpanded,
+                    onTransferRight: { transferLeftToRight(leftPane.selectedFiles) },
+                    onTransferLeft: { transferRightToLeft(rightPane.selectedFiles) }
                 )
-                .frame(height: 180)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                if queueVisible {
+                    TransferQueueView(
+                        transfers: sftpService.transfers,
+                        onCancel: { sftpService.cancelTransfer($0) },
+                        onCancelAll: cancelAllActive
+                    )
+                    .frame(height: 200)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .frame(minWidth: 900, idealWidth: 1200, maxWidth: .infinity,
@@ -431,15 +434,15 @@ private struct FilePane: View {
     var body: some View {
         VStack(spacing: 0) {
             paneHeader
-            Divider()
             tableContent
         }
+        .background(Color.clear)
     }
 
     // MARK: header
 
     private var paneHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             LocationMenu(location: state.location, profiles: profiles) { newLocation in
                 state.location = newLocation
                 state.path = (newLocation == .localhost) ? NSHomeDirectory() : "~"
@@ -447,33 +450,45 @@ private struct FilePane: View {
                 onReload()
             }
 
-            HStack(spacing: 4) {
-                Button(action: navigateUp) {
-                    Image(systemName: "arrow.up")
-                }
-                .help("Up one directory")
-                .disabled(state.isAtRoot)
-
-                Button(action: navigateHome) {
-                    Image(systemName: "house")
-                }
-                .help("Home")
-
-                TextField("Path", text: $state.path)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(onReload)
-
-                Button(action: onReload) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help("Refresh")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.regular)
+            pathBar
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.bar)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.06))
+                        .frame(height: 0.5)
+                }
+        }
+    }
+
+    private var pathBar: some View {
+        HStack(spacing: 2) {
+            SFTPIconButton(systemName: "arrow.up", help: "Up one directory", disabled: state.isAtRoot, action: navigateUp)
+            SFTPIconButton(systemName: "house", help: "Home", action: navigateHome)
+
+            TextField("Path", text: $state.path)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity)
+                .onSubmit(onReload)
+
+            SFTPIconButton(systemName: "arrow.clockwise", help: "Refresh", action: onReload)
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+        .background {
+            Capsule()
+                .fill(Color.primary.opacity(0.05))
+        }
+        .overlay {
+            Capsule()
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
     }
 
     // MARK: table
@@ -515,6 +530,7 @@ private struct FilePane: View {
             .width(min: 120, ideal: 160, max: 220)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .scrollContentBackground(.hidden)
         .contextMenu(forSelectionType: RemoteFile.ID.self) { ids in
             let files = state.files.filter { ids.contains($0.id) }
             if !files.isEmpty {
@@ -565,18 +581,28 @@ private struct FilePane: View {
         }
         .overlay {
             if isDropTargeted {
-                RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
-                    .padding(2)
-                    .allowsHitTesting(false)
+                ZStack {
+                    Color.accentColor.opacity(0.08)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(
+                            Color.accentColor,
+                            style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                        )
+                        .padding(6)
+                }
+                .allowsHitTesting(false)
             }
         }
         .overlay {
             if state.isLoading {
                 ProgressView()
                     .controlSize(.large)
-                    .padding(20)
-                    .background(.regularMaterial, in: .rect(cornerRadius: 10))
+                    .padding(24)
+                    .glassBackground(in: .rect(cornerRadius: 14), fallback: .regularMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    }
             }
         }
         .animation(.easeInOut(duration: 0.12), value: isDropTargeted)
@@ -624,6 +650,10 @@ private struct LocationMenu: View {
     let profiles: [SSHProfile]
     let onChange: (FileLocation) -> Void
 
+    private var accent: Color {
+        location == .localhost ? .green : .accentColor
+    }
+
     var body: some View {
         Menu {
             Button {
@@ -644,20 +674,34 @@ private struct LocationMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: location == .localhost ? "laptopcomputer" : "server.rack")
-                    .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(accent.opacity(0.18))
+                        .frame(width: 22, height: 22)
+                    Image(systemName: location == .localhost ? "laptopcomputer" : "server.rack")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(accent)
+                }
                 Text(location.displayName)
-                    .fontWeight(.medium)
+                    .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.caption2)
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            .contentShape(Rectangle())
+            .padding(.leading, 4)
+            .padding(.trailing, 12)
+            .padding(.vertical, 4)
+            .contentShape(Capsule())
         }
         .menuStyle(.button)
-        .buttonStyle(.bordered)
+        .buttonStyle(.plain)
+        .glassBackground(in: .capsule, fallback: .thinMaterial)
+        .overlay {
+            Capsule()
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
         .fixedSize()
     }
 }
@@ -682,34 +726,48 @@ private struct SFTPStatusBar: View {
             paneSummary(rightPane)
                 .frame(maxWidth: .infinity, alignment: .trailing)
 
-            Divider().frame(height: 14)
-
             transferStatusButton
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(.bar)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.06))
+                        .frame(height: 0.5)
+                }
+        }
         .font(.callout)
     }
 
     private var transferControls: some View {
-        HStack(spacing: 6) {
-            Button(action: onTransferLeft) {
-                Image(systemName: "arrow.left")
-            }
+        let cluster = HStack(spacing: 6) {
+            TransferArrowButton(
+                systemName: "arrow.left",
+                help: "Send selection to left (⌘⇧←)",
+                disabled: rightPane.selection.isEmpty,
+                action: onTransferLeft
+            )
             .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
-            .help("Send selection to left (⌘⇧←)")
-            .disabled(rightPane.selection.isEmpty)
 
-            Button(action: onTransferRight) {
-                Image(systemName: "arrow.right")
-            }
+            TransferArrowButton(
+                systemName: "arrow.right",
+                help: "Send selection to right (⌘⇧→)",
+                disabled: leftPane.selection.isEmpty,
+                action: onTransferRight
+            )
             .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
-            .help("Send selection to right (⌘⇧→)")
-            .disabled(leftPane.selection.isEmpty)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
+
+        return Group {
+            if #available(macOS 26, *) {
+                GlassEffectContainer(spacing: 6) { cluster }
+            } else {
+                cluster
+            }
+        }
     }
 
     private func paneSummary(_ pane: PaneState) -> some View {
@@ -724,10 +782,11 @@ private struct SFTPStatusBar: View {
         }
         return HStack(spacing: 6) {
             Text(pane.location.displayName)
-                .fontWeight(.medium)
+                .font(.system(size: 12, weight: .semibold))
             Text("·")
                 .foregroundStyle(.tertiary)
             Text(summary)
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
@@ -746,24 +805,84 @@ private struct SFTPStatusBar: View {
             HStack(spacing: 6) {
                 if active > 0 {
                     ProgressView().controlSize(.small)
-                    Text("\(active) active").monospacedDigit()
+                    Text("\(active) active")
+                        .font(.system(size: 12, weight: .medium))
+                        .monospacedDigit()
                 } else if total > 0 {
                     Image(systemName: failed > 0 ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                         .foregroundStyle(failed > 0 ? Color.yellow : Color.green)
                     Text("\(total) transfer\(total == 1 ? "" : "s")")
+                        .font(.system(size: 12, weight: .medium))
                         .monospacedDigit()
                 } else {
                     Image(systemName: "tray")
-                        .foregroundStyle(.secondary)
-                    Text("No transfers").foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
+                    Text("No transfers")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
                 }
                 Image(systemName: queueExpanded ? "chevron.down" : "chevron.up")
-                    .font(.caption2)
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Capsule())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
+        .glassBackground(in: .capsule, fallback: .thinMaterial)
+        .overlay {
+            Capsule()
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
         .disabled(transfers.isEmpty)
+        .opacity(transfers.isEmpty ? 0.6 : 1)
+    }
+}
+
+private struct TransferArrowButton: View {
+    let systemName: String
+    let help: String
+    let disabled: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(disabled ? Color.secondary : Color.white)
+                .frame(width: 32, height: 26)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .modifier(TransferArrowBackground(disabled: disabled, isHovered: isHovered))
+        .help(help)
+        .disabled(disabled)
+        .onHover { isHovered = $0 }
+    }
+}
+
+private struct TransferArrowBackground: ViewModifier {
+    let disabled: Bool
+    let isHovered: Bool
+
+    func body(content: Content) -> some View {
+        if disabled {
+            content
+                .background {
+                    Capsule().fill(Color.primary.opacity(0.06))
+                }
+                .overlay {
+                    Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                }
+        } else if #available(macOS 26, *) {
+            content
+                .glassEffect(.regular.tint(.accentColor).interactive(), in: .capsule)
+        } else {
+            content
+                .background(Capsule().fill(Color.accentColor))
+        }
     }
 }
 
@@ -776,57 +895,98 @@ private struct TransferQueueView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                Text("Transfers")
-                    .font(.headline)
-                Spacer()
-
-                let active = transfers.filter { $0.status == .transferring || $0.status == .pending }.count
-                let completed = transfers.filter { $0.status == .completed }.count
-                let failed = transfers.filter { $0.status == .failed }.count
-                let cancelled = transfers.filter { $0.status == .cancelled }.count
-
-                if active > 0 {
-                    Label("\(active)", systemImage: "arrow.right.circle")
-                        .foregroundStyle(.blue)
-                }
-                if completed > 0 {
-                    Label("\(completed)", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                }
-                if failed > 0 {
-                    Label("\(failed)", systemImage: "xmark.circle.fill")
-                        .foregroundStyle(.red)
-                }
-                if cancelled > 0 {
-                    Label("\(cancelled)", systemImage: "stop.circle")
-                        .foregroundStyle(.secondary)
-                }
-
-                if active > 0 {
-                    Button(role: .destructive, action: onCancelAll) {
-                        Label("Cancel All", systemImage: "stop.fill")
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.bordered)
-                }
-            }
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-
-            Divider()
+            queueHeader
 
             ScrollView {
-                LazyVStack(spacing: 4) {
+                LazyVStack(spacing: 6) {
                     ForEach(transfers) { transfer in
                         TransferRow(transfer: transfer, onCancel: onCancel)
                     }
                 }
-                .padding(8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+            .scrollContentBackground(.hidden)
+        }
+        .background {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .overlay(alignment: .top) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.06))
+                        .frame(height: 0.5)
+                }
+        }
+    }
+
+    private var queueHeader: some View {
+        let active = transfers.filter { $0.status == .transferring || $0.status == .pending }.count
+        let completed = transfers.filter { $0.status == .completed }.count
+        let failed = transfers.filter { $0.status == .failed }.count
+        let cancelled = transfers.filter { $0.status == .cancelled }.count
+
+        return HStack(spacing: 10) {
+            Text("Transfers")
+                .font(.system(size: 12, weight: .semibold))
+                .tracking(0.5)
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            HStack(spacing: 6) {
+                if active > 0 {
+                    StatusChip(count: active, systemImage: "arrow.right.circle.fill", tint: .blue)
+                }
+                if completed > 0 {
+                    StatusChip(count: completed, systemImage: "checkmark.circle.fill", tint: .green)
+                }
+                if failed > 0 {
+                    StatusChip(count: failed, systemImage: "xmark.circle.fill", tint: .red)
+                }
+                if cancelled > 0 {
+                    StatusChip(count: cancelled, systemImage: "stop.circle.fill", tint: .secondary)
+                }
+            }
+
+            if active > 0 {
+                Button(role: .destructive, action: onCancelAll) {
+                    Label("Cancel All", systemImage: "stop.fill")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
             }
         }
-        .background(.regularMaterial)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.06))
+                .frame(height: 0.5)
+        }
+    }
+}
+
+private struct StatusChip: View {
+    let count: Int
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 10, weight: .semibold))
+            Text("\(count)")
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background {
+            Capsule().fill(tint.opacity(0.14))
+        }
     }
 }
 
@@ -836,22 +996,29 @@ private struct TransferRow: View {
     @State private var showingError = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: statusIcon)
-                    .foregroundStyle(statusColor)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(statusColor.opacity(0.18))
+                        .frame(width: 24, height: 24)
+                    Image(systemName: statusIcon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(statusColor)
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(URL(fileURLWithPath: transfer.sourcePath).lastPathComponent)
                         .lineLimit(1)
-                        .fontWeight(.medium)
+                        .truncationMode(.middle)
+                        .font(.system(size: 12, weight: .medium))
                     HStack(spacing: 6) {
                         Text("\(transfer.sourceLocation.displayName) → \(transfer.destinationLocation.displayName)")
-                            .font(.caption)
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
                         if transfer.status == .transferring {
                             Text(transfer.progressString)
-                                .font(.caption)
+                                .font(.system(size: 10, weight: .medium))
                                 .foregroundStyle(.blue)
                                 .monospacedDigit()
                         }
@@ -863,12 +1030,14 @@ private struct TransferRow: View {
                 if transfer.status == .transferring || transfer.status == .pending {
                     if transfer.status == .transferring {
                         ProgressView(value: transfer.progress)
-                            .frame(width: 80)
+                            .progressViewStyle(.linear)
+                            .frame(width: 100)
                     }
                     Button {
                         onCancel(transfer.id)
                     } label: {
                         Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -877,7 +1046,8 @@ private struct TransferRow: View {
                     Button {
                         showingError.toggle()
                     } label: {
-                        Image(systemName: showingError ? "chevron.up.circle" : "info.circle")
+                        Image(systemName: showingError ? "chevron.up.circle.fill" : "info.circle.fill")
+                            .font(.system(size: 13))
                             .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
@@ -886,26 +1056,37 @@ private struct TransferRow: View {
 
             if showingError, transfer.status == .failed, let error = transfer.error {
                 VStack(alignment: .leading, spacing: 4) {
-                    Divider()
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.08))
+                        .frame(height: 0.5)
+                        .padding(.vertical, 2)
                     Text(error)
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Text("From: \(transfer.sourcePath)")
-                        .font(.caption2)
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     Text("To: \(transfer.destinationPath)")
-                        .font(.caption2)
+                        .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
+                .padding(.leading, 34)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.background.opacity(0.5), in: .rect(cornerRadius: 6))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+        }
     }
 
     private var statusIcon: String {
@@ -938,20 +1119,31 @@ private struct ConflictResolutionSheet: View {
     let onResolve: (ConflictDecision) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(.yellow)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    Circle()
+                        .fill(Color.yellow.opacity(0.22))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.yellow)
+                }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(intent.isDirectory ? "A folder" : "A file") named \u{201C}\(intent.name)\u{201D} already exists at the destination.")
-                        .font(.headline)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(intent.isDirectory ? "A folder" : "A file") named \u{201C}\(intent.name)\u{201D} already exists.")
+                        .font(.system(size: 15, weight: .semibold))
 
                     Text(intent.destPath)
-                        .font(.caption)
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.primary.opacity(0.05))
+                        }
 
                     Text("Replacing will delete the existing item before transferring.")
                         .font(.caption)
@@ -984,10 +1176,10 @@ private struct ConflictResolutionSheet: View {
                     onResolve(.replace)
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
             }
         }
-        .padding(20)
+        .padding(22)
         .frame(minWidth: 480, idealWidth: 520)
     }
 }
@@ -996,4 +1188,76 @@ private struct ConflictResolutionSheet: View {
 
 private func joinPath(_ base: String, _ name: String) -> String {
     base.hasSuffix("/") ? "\(base)\(name)" : "\(base)/\(name)"
+}
+
+// MARK: - Glass chrome helpers
+
+private struct SFTPIconButton: View {
+    let systemName: String
+    let help: String
+    var disabled: Bool = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(foreground)
+                .frame(width: 24, height: 22)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .background {
+            if isHovered && !disabled {
+                Capsule().fill(Color.primary.opacity(0.08))
+            }
+        }
+        .help(help)
+        .disabled(disabled)
+        .onHover { isHovered = $0 }
+    }
+
+    private var foreground: Color {
+        if disabled { return Color.secondary.opacity(0.5) }
+        return isHovered ? .primary : .secondary
+    }
+}
+
+private struct SFTPBackdrop: View {
+    let leftLocation: FileLocation
+    let rightLocation: FileLocation
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    tint(for: leftLocation).opacity(0.10),
+                    Color.clear
+                ],
+                startPoint: .topLeading,
+                endPoint: .center
+            )
+
+            LinearGradient(
+                colors: [
+                    tint(for: rightLocation).opacity(0.10),
+                    Color.clear
+                ],
+                startPoint: .topTrailing,
+                endPoint: .center
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .allowsHitTesting(false)
+    }
+
+    private func tint(for location: FileLocation) -> Color {
+        switch location {
+        case .localhost:
+            return .green
+        case .server(let profile):
+            return ProfileAvatar.color(for: profile)
+        }
+    }
 }
